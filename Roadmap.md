@@ -52,33 +52,36 @@ Key decisions:
   size.
 - [x] **Tile cache**: memory-bounded LRU keyed on node hash and tile; off by
   default; Read invalidates on file changes.
+- [x] **Python bindings** (pybind11, `import comp`): graphs, nodes and
+  parameters, rendering, Write execution, tile cache; images readable from
+  numpy without copying. Optional in the build. Node types are created by
+  name through a registry that project files will reuse.
 
 ## Next
 
 In planned order. Items further down are less settled.
 
-### 1. Render snapshots
-Freeze the graph state when a render starts, so a GUI can edit parameters
-while renders run. Separate a node's *definition* (type, parameter schema),
-its *instance* (user values) and the render-time *op* (a frozen, evaluable
-copy).
+### 1. Project files
+A versioned, diff-friendly text format (JSON or a simple custom format) for
+saving and loading graphs, built on the node registry. `comp_render` then
+loads a project and runs its Write nodes instead of wiring a single Read
+into a Write. Save and load from Python too.
 
-### 2. Project files
-A versioned, diff-friendly text format (JSON or a simple custom format)
-for saving and loading graphs. `comp_render` then loads a project and runs
-its Write nodes instead of wiring a single Read into a Write.
-
-### 3. Python bindings
-pybind11 or nanobind, covering graph building, parameters and rendering.
-
-### 4. Color management (OpenColorIO)
+### 2. Color management (OpenColorIO)
 Input and output color spaces on Read and Write, plus a color-space
 conversion node.
 
-### 5. OpenFX plugin hosting
+### 3. OpenFX plugin hosting
 Run existing OFX effects as nodes.
 
-### 6. GUI
+### 4. Render snapshots
+Freeze the graph state when a render starts, so a GUI can edit parameters
+while renders run, and the Python bindings can release the GIL during
+renders. Separate a node's *definition* (type, parameter schema),
+its *instance* (user values) and the render-time *op* (a frozen, evaluable
+copy). Needed before the GUI.
+
+### 5. GUI
 Qt node graph, viewer and properties panels, built on the public API.
 Turns on the tile cache for interactive use.
 
@@ -88,6 +91,8 @@ Turns on the tile cache for interactive use.
 - Deep compositing.
 - GPU backend behind the existing pixel-math interface.
 - Run independent branches of the graph at the same time.
+- Nodes written in Python (needs GIL handling around compute()).
+- Install rules and a pip-installable package for the Python module.
 - Look at Natron (open source, OFX-based, modeled on Nuke) for ideas and
   pitfalls.
 

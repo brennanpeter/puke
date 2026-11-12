@@ -9,6 +9,7 @@
 #include "comp/engine/Engine.h"
 #include "comp/graph/Graph.h"
 #include "comp/nodes/GradeNode.h"
+#include "comp/nodes/Registry.h"
 #include "comp/nodes/MergeNode.h"
 #include "comp/nodes/TransformNode.h"
 
@@ -421,8 +422,24 @@ static void testChain() {
     CHECK(e.lastStats().nodesComputed == 5);
 }
 
+static void testRegistry() {
+    const auto types = nodeTypes();
+    CHECK((types == std::vector<std::string>{"Grade", "Merge", "Read", "Transform", "Write"}));
+    Graph g;
+    for (const auto& t : types) {
+        Node& n = g.add(createNode(t, t + "1"));
+        CHECK(n.typeName() == t);
+        CHECK(g.find(t + "1") == &n);
+    }
+    CHECK_THROWS(createNode("Blur", "Blur1"), "unknown node type 'Blur' (known types: Grade, Merge");
+    CHECK_THROWS(g.add(createNode("Grade", "Grade1")), "a node named 'Grade1' already exists");
+    CHECK_THROWS(g.add(nullptr), "cannot add a null node");
+    CHECK(g.nodes().size() == types.size());
+}
+
 int main() {
     try {
+        testRegistry();
         testGrade();
         testMergeOperations();
         testMergeChannelsAndBBox();

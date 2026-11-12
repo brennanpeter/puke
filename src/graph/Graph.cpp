@@ -29,6 +29,19 @@ Node* Graph::find(const std::string& name) const {
     return nullptr;
 }
 
+void Graph::checkNewName(const std::string& name) const {
+    if (name.empty()) throw Error("node name cannot be empty");
+    if (find(name)) throw Error("a node named '" + name + "' already exists");
+}
+
+Node& Graph::add(std::unique_ptr<Node> node) {
+    if (!node) throw Error("cannot add a null node");
+    checkNewName(node->name());
+    Node& ref = *node;
+    nodes_.push_back(std::move(node));
+    return ref;
+}
+
 void Graph::requireOwned(const Node& node) const {
     for (const auto& n : nodes_)
         if (n.get() == &node) return;
