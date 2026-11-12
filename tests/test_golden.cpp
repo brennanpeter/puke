@@ -14,6 +14,7 @@
 // bug in comp's own Read or Write can't hide itself.
 
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <functional>
@@ -256,6 +257,26 @@ static bool runCase(const Case& c, bool update) {
                           "%lld values differ by more than %g; worst %g at (%d, %d) channel %s",
                           bad, kTolerance, worst, worstX, worstY, actual.channels()[worstC].c_str());
             problem = buf;
+        }
+    }
+
+    // However the work is split, the pixels must be identical, bit for bit:
+    // one thread with no tiling, and many threads with small odd-sized tiles
+    // that don't line up with anything in the comp.
+    if (problem.empty()) {
+        for (const EngineOptions opts : {EngineOptions{1, 1 << 20}, EngineOptions{4, 7}}) {
+            Graph g2;  // fresh graph: node names must be unique within one
+            Engine other(opts);
+            const Image img = other.render(c.build(g2), {}, region);
+            const bool same = img.region() == actual.region() && img.channels() == actual.channels() &&
+                              std::memcmp(img.data(), actual.data(),
+                                          static_cast<std::size_t>(region.area()) *
+                                              actual.numChannels() * sizeof(float)) == 0;
+            if (!same) {
+                problem = "render with " + std::to_string(opts.threads) + " thread(s) and " +
+                          std::to_string(opts.tileSize) + "px tiles differs from the default render";
+                break;
+            }
         }
     }
 

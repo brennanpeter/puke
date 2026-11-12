@@ -79,13 +79,20 @@ static void testUsageErrors() {
     r = run("plate.####.exr out.####.exr --frames abc");
     CHECK(r.exitCode == 2 && r.output.find("invalid frame range") != std::string::npos);
 
+    r = run("plate.####.exr out.####.exr --threads -1");
+    CHECK(r.exitCode == 2 && r.output.find("invalid thread count") != std::string::npos);
+
+    r = run("plate.####.exr out.####.exr --threads 4x");
+    CHECK(r.exitCode == 2 && r.output.find("invalid thread count") != std::string::npos);
+
     r = run("plate.####.exr single.exr --frames 1001-1003");
     CHECK(r.exitCode == 2 && r.output.find("needs a frame token") != std::string::npos);
     CHECK(!fs::exists(g_dir / "single.exr"));
 }
 
 static void testRenderSequence() {
-    auto r = run("plate.####.exr out/shot.####.exr --frames 1001-1003 --datatype float --compression zip");
+    auto r = run("plate.####.exr out/shot.####.exr --frames 1001-1003 --datatype float --compression zip "
+                 "--threads 2");
     CHECK(r.exitCode == 0);
     for (int f = 1001; f <= 1003; ++f) {
         const fs::path file = g_dir / ("out/shot." + std::to_string(f) + ".exr");

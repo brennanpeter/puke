@@ -1,7 +1,9 @@
 // comp_render: minimal command-line renderer.
 //
 //   comp_render <input> <output> [--frames A-B] [--datatype half|float|uint8|uint16]
-//               [--compression NAME]
+//               [--compression NAME] [--threads N]
+//
+// --threads 0 (the default) uses every core; --threads 1 renders on one thread.
 //
 // Example:
 //   comp_render plates/shot.####.exr out/shot.####.exr --frames 1001-1100 --compression zip
@@ -24,7 +26,7 @@ namespace {
 void usage() {
     std::fprintf(stderr,
                  "usage: comp_render <input> <output> [--frames A-B] "
-                 "[--datatype half|float|uint8|uint16] [--compression NAME]\n");
+                 "[--datatype half|float|uint8|uint16] [--compression NAME] [--threads N]\n");
 }
 
 bool parseRange(const std::string& s, int& first, int& last) {
@@ -43,6 +45,17 @@ bool parseRange(const std::string& s, int& first, int& last) {
     return first <= last;
 }
 
+// A whole, non-negative number.
+bool parseCount(const std::string& s, int& n) {
+    try {
+        std::size_t used = 0;
+        n = std::stoi(s, &used);
+        return used == s.size() && n >= 0;
+    } catch (...) {
+        return false;
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -56,6 +69,7 @@ int main(int argc, char** argv) {
     int first = 1, last = 1;
     std::string datatype = "half";
     std::string compression;
+    int threads = 0;
 
     for (int i = 3; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -69,6 +83,11 @@ int main(int argc, char** argv) {
             datatype = argv[++i];
         } else if (arg == "--compression" && hasValue) {
             compression = argv[++i];
+        } else if (arg == "--threads" && hasValue) {
+            if (!parseCount(argv[++i], threads)) {
+                std::fprintf(stderr, "invalid thread count: %s\n", argv[i]);
+                return 2;
+            }
         } else {
             usage();
             return 2;
@@ -94,7 +113,7 @@ int main(int argc, char** argv) {
     if (!compression.empty()) write.setParam("compression", compression);
     graph.connect(read, write, 0);
 
-    comp::Engine engine;
+    comp::Engine engine(comp::EngineOptions{.threads = threads});
     int failures = 0;
     for (int f = first; f <= last; ++f) {
         try {

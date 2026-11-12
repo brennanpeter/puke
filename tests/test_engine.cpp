@@ -1,11 +1,18 @@
 // Tests for Graph and Engine, using small test-only nodes.
 
 #include <cmath>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "TestUtil.h"
 #include "comp/engine/Engine.h"
+#include "comp/engine/ThreadPool.h"
 #include "comp/graph/Graph.h"
 
 using namespace comp;
@@ -13,11 +20,30 @@ using namespace comp;
 static const Box kFormat{0, 0, 64, 32};
 static const ChannelList kRGBA{"R", "G", "B", "A"};
 
-// Instrumentation shared by the test nodes. mutable because compute() is const;
-// real nodes must not do this.
+// Instrumentation shared by the test nodes: counts calls and records the
+// bounding box of every region requested. The engine calls compute() from
+// several threads (one call per tile), so updates take a lock. mutable
+// because compute() is const; real nodes must not do this.
 struct Probe {
+    mutable std::mutex probeMutex;
     mutable int computeCalls = 0;
-    mutable Box lastRegion;
+    mutable long long pixelsComputed = 0;
+    mutable Box requested;
+
+    void record(const Box& region) const {
+        std::lock_guard lock(probeMutex);
+        ++computeCalls;
+        pixelsComputed += region.area();
+        requested = requested.unite(region);
+    }
+    // Every requested pixel was computed exactly once (tiles don't overlap).
+    void resetProbe() const {
+        std::lock_guard lock(probeMutex);
+        computeCalls = 0;
+        pixelsComputed = 0;
+        requested = {};
+    }
+    bool computedOnce() const { return computeCalls > 0 && pixelsComputed == requested.area(); }
 };
 
 // Solid colour `value` (all channels) inside `box`, zero outside.
@@ -30,8 +56,7 @@ public:
         return {box_, kFormat, kRGBA};
     }
     Image compute(const RenderContext&, const Box& region, std::span<const Image* const>) const override {
-        ++computeCalls;
-        lastRegion = region;
+        record(region);
         Image out(region, kRGBA);
         const Box fill = region.intersect(box_);
         for (int y = fill.y0; y < fill.y1; ++y)
@@ -59,8 +84,7 @@ public:
         return info;
     }
     Image compute(const RenderContext&, const Box& region, std::span<const Image* const> in) const override {
-        ++computeCalls;
-        lastRegion = region;
+        record(region);
         Image out(region, in[0]->channels());
         for (int y = region.y0; y < region.y1; ++y)
             for (int x = region.x0; x < region.x1; ++x)
@@ -87,8 +111,7 @@ public:
         return {r.x0 - radius_, r.y0, r.x1 + radius_, r.y1};
     }
     Image compute(const RenderContext&, const Box& region, std::span<const Image* const> in) const override {
-        ++computeCalls;
-        lastRegion = region;
+        record(region);
         const Image& src = *in[0];
         Image out(region, src.channels());
         const float norm = 1.0f / (2 * radius_ + 1);
@@ -134,8 +157,8 @@ static void testRegionOfInterest() {
     CHECK(img.region() == region);
     // Blur's data window starts at x=8, so it computes only x 8..12. It needs
     // 2 more pixels each side (6..14), clipped to the constant's box (10..20).
-    CHECK(blur.lastRegion == (Box{8, 4, 12, 6}));
-    CHECK(c.lastRegion == (Box{10, 4, 14, 6}));
+    CHECK(blur.requested == (Box{8, 4, 12, 6}));
+    CHECK(c.requested == (Box{10, 4, 14, 6}));
 
     // Pixels: x=7 sees x5..9 (all outside, 0); x=10 sees 8..12 (3 inside); x=11 sees 4 inside.
     CHECK(near(img.pixel(7, 5)[0], 0.0f));
@@ -161,11 +184,11 @@ static void testSharedInputComputedOnce() {
     const Box region{20, 10, 30, 12};
     Image img = e.render(add, {}, region);
 
-    CHECK(c.computeCalls == 1);
-    CHECK(blur.computeCalls == 1);
-    CHECK(add.computeCalls == 1);
+    CHECK(c.computedOnce());
+    CHECK(blur.computedOnce());
+    CHECK(add.computedOnce());
     // Union of Blur's padded request and Add's direct request.
-    CHECK(c.lastRegion == (Box{17, 10, 33, 12}));
+    CHECK(c.requested == (Box{17, 10, 33, 12}));
     CHECK(e.lastStats().nodesComputed == 3);
     CHECK(e.lastStats().pixelsComputed == 32 + 20 + 20);
     CHECK(near(img.pixel(25, 11)[3], 1.0f));  // blur(0.5) + 0.5
@@ -216,8 +239,8 @@ static void testDisjointRequestsAreCombined() {
 
     Engine e;
     Image img = e.render(add, {}, {30, 5, 34, 6});
-    CHECK(c.computeCalls == 1);
-    CHECK(c.lastRegion == (Box{10, 5, 54, 6}));  // the union of both requests
+    CHECK(c.computedOnce());
+    CHECK(c.requested == (Box{10, 5, 54, 6}));  // the union of both requests
     CHECK(near(img.pixel(30, 5)[0], 2.0f));
     CHECK(near(img.pixel(33, 5)[0], 2.0f));
 }
@@ -232,8 +255,8 @@ static void testClipsToDataWindow() {
     const Box region{0, 0, 1000, 1000};
     Image img = e.render(blur, {}, region);
     CHECK(img.region() == region);  // caller still gets exactly what they asked for
-    CHECK(c.lastRegion == (Box{10, 10, 20, 20}));
-    CHECK(blur.lastRegion == (Box{9, 10, 21, 20}));
+    CHECK(c.requested == (Box{10, 10, 20, 20}));
+    CHECK(blur.requested == (Box{9, 10, 21, 20}));
     CHECK(e.lastStats().pixelsComputed == 100 + 120);
     CHECK(near(img.pixel(15, 15)[0], 1.0f));
     CHECK(near(img.pixel(500, 500)[0], 0.0f));
@@ -406,6 +429,127 @@ static void testParamAccess() {
     CHECK_THROWS(n.colorParam("offset", 0), "must be a number");
 }
 
+// ---------------------------------------------------------------- tiles and threads
+
+static void testTileGrid() {
+    // Tiles sit on a fixed grid anchored at (0, 0), including for negative coordinates.
+    const auto tiles = tilesOf({-5, 3, 10, 9}, 4);
+    const std::vector<Box> expected{
+        {-5, 3, -4, 4}, {-4, 3, 0, 4}, {0, 3, 4, 4}, {4, 3, 8, 4}, {8, 3, 10, 4},
+        {-5, 4, -4, 8}, {-4, 4, 0, 8}, {0, 4, 4, 8}, {4, 4, 8, 8}, {8, 4, 10, 8},
+        {-5, 8, -4, 9}, {-4, 8, 0, 9}, {0, 8, 4, 9}, {4, 8, 8, 9}, {8, 8, 10, 9},
+    };
+    CHECK(tiles == expected);
+    CHECK((tilesOf({0, 0, 64, 64}, 64) == std::vector<Box>{{0, 0, 64, 64}}));
+    CHECK(tilesOf({}, 64).empty());
+    CHECK_THROWS(tilesOf({0, 0, 1, 1}, 0), "tile size must be at least 1");
+    CHECK_THROWS(Engine(EngineOptions{1, 0}), "tile size must be at least 1");
+}
+
+static void testThreadPool() {
+    ThreadPool pool(4);
+    CHECK(pool.threads() == 4);
+    CHECK(ThreadPool(1).threads() == 1);
+    CHECK(ThreadPool(0).threads() >= 1);
+
+    // Every index runs exactly once.
+    std::vector<std::atomic<int>> hits(1000);
+    pool.parallelFor(hits.size(), [&](std::size_t i) { ++hits[i]; });
+    bool allOnce = true;
+    for (auto& h : hits) allOnce = allOnce && h == 1;
+    CHECK(allOnce);
+
+    // Work really is spread over more than one thread.
+    std::mutex m;
+    std::vector<std::thread::id> ids;
+    pool.parallelFor(64, [&](std::size_t) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        std::lock_guard lock(m);
+        if (std::find(ids.begin(), ids.end(), std::this_thread::get_id()) == ids.end())
+            ids.push_back(std::this_thread::get_id());
+    });
+    CHECK(ids.size() > 1);
+
+    // Exceptions reach the caller, and the pool still works afterwards.
+    CHECK_THROWS(pool.parallelFor(100, [](std::size_t i) {
+        if (i == 37) throw Error("tile 37 broke");
+    }), "tile 37 broke");
+    std::atomic<int> count = 0;
+    pool.parallelFor(10, [&](std::size_t) { ++count; });
+    CHECK(count == 10);
+
+    // parallelFor inside parallelFor doesn't deadlock, even with every worker busy.
+    std::atomic<int> inner = 0;
+    pool.parallelFor(8, [&](std::size_t) { pool.parallelFor(8, [&](std::size_t) { ++inner; }); });
+    CHECK(inner == 64);
+}
+
+static void testTiledRenderMatchesUntiled() {
+    // A blur chain with a shared input, rendered with different tile sizes and
+    // thread counts, gives identical pixels, and each node is still computed once.
+    auto build = [](Graph& g) -> Node& {
+        auto& c = g.create<ConstantNode>("Constant1", 0.25f, Box{3, 2, 61, 30});
+        auto& blur = g.create<BlurXNode>("Blur1", 3);
+        auto& add = g.create<AddNode>("Add1");
+        g.connect(c, blur, 0);
+        g.connect(blur, add, 0);
+        g.connect(c, add, 1);
+        return add;
+    };
+    const Box region{-4, -4, 70, 40};
+
+    Graph g0;
+    const Image ref = Engine(EngineOptions{1, 1 << 20}).render(build(g0), {}, region);
+    for (const EngineOptions opts : {EngineOptions{1, 5}, EngineOptions{4, 1}, EngineOptions{4, 16},
+                                     EngineOptions{8, 64}}) {
+        Graph g;
+        Node& out = build(g);
+        Engine e(opts);
+        const Image img = e.render(out, {}, region);
+        bool same = img.region() == ref.region();
+        for (int y = region.y0; same && y < region.y1; ++y)
+            for (int x = region.x0; same && x < region.x1; ++x)
+                for (int ch = 0; ch < 4; ++ch) same = same && img.pixel(x, y)[ch] == ref.pixel(x, y)[ch];
+        CHECK(same);
+        auto& c = static_cast<ConstantNode&>(*g.find("Constant1"));
+        CHECK(c.computedOnce());
+        CHECK(e.lastStats().nodesComputed == 3);
+        if (opts.tileSize == 1) CHECK(e.lastStats().tilesComputed == e.lastStats().pixelsComputed);
+    }
+}
+
+// A ConstantNode that asks to be computed in one piece.
+class WholeRegionNode : public ConstantNode {
+public:
+    using ConstantNode::ConstantNode;
+    bool supportsTiles() const override { return false; }
+};
+
+static void testNodesCanOptOutOfTiles() {
+    Graph g;
+    auto& whole = g.create<WholeRegionNode>("Whole", 1.0f, kFormat);
+    auto& add = g.create<AddNode>("Add1");
+    g.connect(whole, add, 0);
+    Engine e(EngineOptions{4, 4});
+    e.render(add, {}, kFormat);
+    CHECK(whole.computeCalls == 1);
+    CHECK(whole.requested == kFormat);
+    CHECK(add.computeCalls == (64 / 4) * (32 / 4));
+    CHECK(e.lastStats().tilesComputed == 1 + (64 / 4) * (32 / 4));
+}
+
+static void testErrorsFromTilesNameTheNode() {
+    // An exception thrown in a worker thread still comes back to render(),
+    // carrying the node's name, and the engine is usable afterwards.
+    Graph g;
+    auto& c = g.create<ConstantNode>("Constant1", 1.0f, kFormat);
+    auto& bad = g.create<ThrowingNode>("Thrower", "render");
+    g.connect(c, bad, 0);
+    Engine e(EngineOptions{4, 4});
+    CHECK_THROWS(e.render(bad, {}, kFormat), "Thrower: render failed");
+    CHECK(near(e.render(c, {}, kFormat).pixel(5, 5)[0], 1.0f));
+}
+
 int main() {
     try {
         testRegionOfInterest();
@@ -420,6 +564,11 @@ int main() {
         testForeignExceptionsNameTheNode();
         testGraphMisuse();
         testParamAccess();
+        testTileGrid();
+        testThreadPool();
+        testTiledRenderMatchesUntiled();
+        testNodesCanOptOutOfTiles();
+        testErrorsFromTilesNameTheNode();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "unexpected exception: %s\n", e.what());
         ++test::failures;

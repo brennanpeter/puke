@@ -1,7 +1,10 @@
 #include "comp/engine/Engine.h"
 
+#include <cstring>
 #include <unordered_map>
 #include <vector>
+
+#include "comp/engine/ThreadPool.h"
 
 namespace comp {
 namespace {
@@ -80,7 +83,44 @@ std::vector<ImageInfo> computeInfos(const Plan& plan, const RenderContext& ctx) 
     return infos;
 }
 
+// Floor division, so negative coordinates land in the right tile.
+int floorDiv(int a, int b) { return a / b - ((a % b != 0) && ((a < 0) != (b < 0))); }
+
+// Copies all of `src` into `dst`, which must cover src.region().
+void paste(Image& dst, const Image& src) {
+    const Box& r = src.region();
+    const std::size_t bytes = static_cast<std::size_t>(r.width()) * src.numChannels() * sizeof(float);
+    for (int y = r.y0; y < r.y1; ++y) std::memcpy(dst.pixel(r.x0, y), src.pixel(r.x0, y), bytes);
+}
+
 }  // namespace
+
+std::vector<Box> tilesOf(const Box& region, int tileSize) {
+    std::vector<Box> tiles;
+    if (region.empty()) return tiles;
+    if (tileSize < 1) throw Error("tile size must be at least 1, not " + std::to_string(tileSize));
+    const int tx0 = floorDiv(region.x0, tileSize), tx1 = floorDiv(region.x1 - 1, tileSize);
+    const int ty0 = floorDiv(region.y0, tileSize), ty1 = floorDiv(region.y1 - 1, tileSize);
+    tiles.reserve(static_cast<std::size_t>(tx1 - tx0 + 1) * (ty1 - ty0 + 1));
+    for (int ty = ty0; ty <= ty1; ++ty)
+        for (int tx = tx0; tx <= tx1; ++tx) {
+            const Box cell{tx * tileSize, ty * tileSize, (tx + 1) * tileSize, (ty + 1) * tileSize};
+            tiles.push_back(cell.intersect(region));
+        }
+    return tiles;
+}
+
+Engine::Engine(EngineOptions options)
+    : options_(options), pool_(std::make_unique<ThreadPool>(options.threads)) {
+    if (options_.tileSize < 1)
+        throw Error("tile size must be at least 1, not " + std::to_string(options_.tileSize));
+}
+
+Engine::~Engine() = default;
+Engine::Engine(Engine&&) noexcept = default;
+Engine& Engine::operator=(Engine&&) noexcept = default;
+
+int Engine::threads() const { return pool_->threads(); }
 
 ImageInfo Engine::info(const Node& output, const RenderContext& ctx) {
     const Plan plan = makePlan(output);
@@ -132,12 +172,29 @@ Image Engine::render(const Node& output, const RenderContext& ctx, const Box& re
             for (int j = 0; j < node->maxInputs(); ++j)
                 if (const Node* in = node->input(j)) ins[j] = &images[plan.indexOf(in)];
 
-            Image img = inNode(*node, "render", [&] { return node->compute(ctx, regions[i], ins); });
-            if (img.region() != regions[i] || img.channels() != infos[i].channels)
-                throw Error(node->name() + ": " + node->typeName() +
-                            " node returned a different region or channel list than requested");
-            images[i] = std::move(img);
+            const Box& nodeRegion = regions[i];
+            const std::vector<Box> tiles =
+                node->supportsTiles() ? tilesOf(nodeRegion, options_.tileSize) : std::vector<Box>{nodeRegion};
 
+            // Runs compute() for one tile and checks it kept to the contract.
+            auto computeTile = [&](const Box& tile) {
+                Image img = inNode(*node, "render", [&] { return node->compute(ctx, tile, ins); });
+                if (img.region() != tile || img.channels() != infos[i].channels)
+                    throw Error(node->name() + ": " + node->typeName() +
+                                " node returned a different region or channel list than requested");
+                return img;
+            };
+
+            if (tiles.size() == 1) {
+                images[i] = computeTile(nodeRegion);
+            } else {
+                // Tiles cover disjoint pixels, so threads can paste without locking.
+                Image out(nodeRegion, infos[i].channels);
+                pool_->parallelFor(tiles.size(), [&](std::size_t t) { paste(out, computeTile(tiles[t])); });
+                images[i] = std::move(out);
+            }
+
+            stats_.tilesComputed += static_cast<long long>(tiles.size());
             ++stats_.nodesComputed;
             stats_.pixelsComputed += regions[i].area();
         }

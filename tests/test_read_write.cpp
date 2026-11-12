@@ -91,6 +91,11 @@ static void testRoundTrip() {
 
     for (int f = 1; f <= 2; ++f) write.execute(g_engine, {static_cast<double>(f)});
 
+    // Read opts out of tiling: it opens the file once, however small the tiles.
+    Engine tiny(EngineOptions{4, 2});
+    tiny.render(read, {1.0}, {-4, -2, 20, 10});
+    CHECK(tiny.lastStats().tilesComputed == 1);
+
     // Re-read what was written and compare every pixel.
     auto& check = g.create<ReadNode>("Check");
     check.setParam("file", tmp("out/out.####.exr"));

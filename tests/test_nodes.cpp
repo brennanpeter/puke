@@ -386,14 +386,15 @@ static void testTransformRegions() {
     // Translating by 100 asks for the matching input area, plus filter padding.
     xf.setParam("translate", Vec2{100, 0});
     e.render(xf, {}, {500, 500, 600, 600});
-    CHECK(src.lastRegion == (Box{398, 498, 502, 602}));
+    CHECK(src.requested == (Box{398, 498, 502, 602}));
 
     // Shrinking to 1% doesn't request a 100x larger region than exists:
     // the request is clipped to the input's data window.
     xf.setParam("translate", Vec2{0, 0});
     xf.setParam("scale", 0.01);
+    src.resetProbe();
     e.render(xf, {}, {0, 0, 2000, 1000});
-    CHECK(src.lastRegion == (Box{0, 0, 2000, 1000}));
+    CHECK(src.requested == (Box{0, 0, 2000, 1000}));
     CHECK(e.lastStats().pixelsComputed < 2'100'000);
 }
 

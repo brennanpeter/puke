@@ -6,12 +6,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(OpenImageIO CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 
 add_library(comp_core
     src/core/FramePattern.cpp
     src/graph/Node.cpp
     src/graph/Graph.cpp
     src/engine/Engine.cpp
+    src/engine/ThreadPool.cpp
     src/nodes/ReadNode.cpp
     src/nodes/WriteNode.cpp
     src/nodes/GradeNode.cpp
@@ -19,7 +21,7 @@ add_library(comp_core
     src/nodes/TransformNode.cpp
 )
 target_include_directories(comp_core PUBLIC include)
-target_link_libraries(comp_core PUBLIC OpenImageIO::OpenImageIO)
+target_link_libraries(comp_core PUBLIC OpenImageIO::OpenImageIO Threads::Threads)
 if(MSVC)
     target_compile_options(comp_core PRIVATE /W4)
 else()

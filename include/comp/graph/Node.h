@@ -48,9 +48,13 @@ using ParamValue = std::variant<bool, int, double, std::string, Vec2, Color>;
 //                  a data window is zero by definition). Read input pixels
 //                  with Image::at(), which returns 0 outside the image.
 //
-// Unconnected optional inputs arrive as nullptr. All hooks are const: nodes
-// must not change state while rendering (this is what will let the engine
-// run them on many threads later).
+// Unconnected optional inputs arrive as nullptr.
+//
+// Threading: the engine splits each node's region into tiles and calls
+// compute() for several tiles at once, from different threads. All hooks are
+// const, and nodes must not change any state while rendering. Each tile's
+// pixels must depend only on the inputs and parameters, not on how the
+// region was split, so tiled and untiled renders match exactly.
 class Node {
 public:
     explicit Node(std::string name) : name_(std::move(name)) {}
@@ -104,6 +108,12 @@ public:
 
     virtual Image compute(const RenderContext& ctx, const Box& region,
                           std::span<const Image* const> inputs) const = 0;
+
+    // Whether the engine may split this node's region into tiles. Return
+    // false when each compute() call has a large fixed cost that tiling
+    // would repeat (e.g. opening a file); the node then gets its whole
+    // region in one call, on one thread.
+    virtual bool supportsTiles() const { return true; }
 
 private:
     std::string name_;

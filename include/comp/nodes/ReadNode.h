@@ -28,6 +28,10 @@ public:
     Image compute(const RenderContext& ctx, const Box& region,
                   std::span<const Image* const> inputs) const override;
 
+    // Every compute() opens the file and reads whole rows, so tiling would
+    // repeat that work per tile. TODO: allow tiles once there's a file cache.
+    bool supportsTiles() const override { return false; }
+
     // The file path that would be read for this context, or "" if the frame
     // is outside the range and `outside` is "black".
     std::string resolvePath(const RenderContext& ctx) const;

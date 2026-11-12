@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -87,8 +88,11 @@ public:
     }
     comp::Image compute(const comp::RenderContext&, const comp::Box& region,
                         std::span<const comp::Image* const>) const override {
-        lastRegion = region;
-        ++computeCalls;
+        {
+            std::lock_guard lock(probeMutex_);  // the engine calls this from several threads
+            requested = requested.unite(region);
+            ++computeCalls;
+        }
         comp::Image out(region, channels_);
         for (int y = region.y0; y < region.y1; ++y)
             for (int x = region.x0; x < region.x1; ++x)
@@ -97,10 +101,17 @@ public:
     }
 
     // Test instrumentation only; real nodes must not mutate during compute().
-    mutable comp::Box lastRegion;
+    // `requested` is the bounding box of every region asked for.
+    mutable comp::Box requested;
     mutable int computeCalls = 0;
+    void resetProbe() const {
+        std::lock_guard lock(probeMutex_);
+        requested = {};
+        computeCalls = 0;
+    }
 
 private:
+    mutable std::mutex probeMutex_;
     comp::Box box_, format_;
     comp::ChannelList channels_;
     PixelFn fn_;
