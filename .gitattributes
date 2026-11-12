@@ -1,0 +1,3 @@
+# Golden reference images are binary; never diff or merge them as text.
+*.exr binary
+*.png binary

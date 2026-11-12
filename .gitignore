@@ -1,0 +1,12 @@
+# Build output
+build*/
+
+# Left behind by failed test runs
+*_tmp/
+golden_failures/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
