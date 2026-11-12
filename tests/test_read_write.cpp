@@ -1,5 +1,6 @@
 // Tests for Read and Write. Run from the build directory (ctest does this).
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -360,6 +361,27 @@ static void testWriteIsPassThrough() {
     CHECK(img.pixel(-1, -1)[0] == 0.0f);
 }
 
+static void testCacheSeesFileChanges() {
+    // Overwriting a file invalidates its cached pixels, even at the same path.
+    const std::string path = tmp("cached.exr");
+    makeTestFrame(path, 1);
+    Graph g;
+    auto& read = g.create<ReadNode>("Read1");
+    read.setParam("file", path);
+
+    Engine e(EngineOptions{.cacheBytes = 64 << 20});
+    const Box region{-4, -2, 20, 10};
+    CHECK_NEAR(e.render(read, {}, region).pixel(3, 2)[1], testValue(3, 2, 1, 1));
+    e.render(read, {}, region);
+    CHECK(e.lastStats().tilesFromCache == 1 && e.lastStats().tilesComputed == 0);
+
+    makeTestFrame(path, 7);
+    // Make sure the timestamp moves even on filesystems with coarse mtimes.
+    fs::last_write_time(path, fs::last_write_time(path) + std::chrono::seconds(2));
+    CHECK_NEAR(e.render(read, {}, region).pixel(3, 2)[1], testValue(3, 2, 1, 7));
+    CHECK(e.lastStats().tilesComputed == 1);
+}
+
 int main() {
     g_dir = fs::current_path() / "test_read_write_tmp";
     fs::remove_all(g_dir);
@@ -376,6 +398,7 @@ int main() {
         testEmptyImage();
         testWriteErrors();
         testWriteIsPassThrough();
+        testCacheSeesFileChanges();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "unexpected exception: %s\n", e.what());
         ++test::failures;

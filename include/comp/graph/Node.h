@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <map>
 #include <span>
 #include <stdexcept>
@@ -9,6 +10,7 @@
 #include <vector>
 
 #include "comp/core/Box.h"
+#include "comp/core/Hash.h"
 #include "comp/core/Image.h"
 
 namespace comp {
@@ -55,15 +57,25 @@ using ParamValue = std::variant<bool, int, double, std::string, Vec2, Color>;
 // const, and nodes must not change any state while rendering. Each tile's
 // pixels must depend only on the inputs and parameters, not on how the
 // region was split, so tiled and untiled renders match exactly.
+//
+// Caching: the engine may reuse tiles from an earlier render. A node's cache
+// key covers its type, parameters, inputs, the frame and the node's id (so
+// two nodes never share tiles). If a node's output can change for any other
+// reason after it's created (a file on disk, say), it must add that to the
+// key in appendHash(), or stale tiles will be reused.
 class Node {
 public:
-    explicit Node(std::string name) : name_(std::move(name)) {}
+    explicit Node(std::string name);
     virtual ~Node() = default;
 
     Node(const Node&) = delete;
     Node& operator=(const Node&) = delete;
 
     const std::string& name() const { return name_; }
+
+    // Unique for the life of the program, never reused, even after the node
+    // is destroyed. Part of every cache key.
+    std::uint64_t id() const { return id_; }
     virtual const char* typeName() const = 0;
 
     // --- inputs ---
@@ -77,6 +89,7 @@ public:
     // --- parameters ---
     void setParam(const std::string& key, ParamValue value) { params_[key] = std::move(value); }
     bool hasParam(const std::string& key) const { return params_.count(key) > 0; }
+    const std::map<std::string, ParamValue>& params() const { return params_; }
 
     template <typename T>
     T param(const std::string& key) const {
@@ -115,8 +128,14 @@ public:
     // region in one call, on one thread.
     virtual bool supportsTiles() const { return true; }
 
+    // Adds anything besides parameters and inputs that this node's output
+    // depends on to its cache key. Called once per render, before compute.
+    // Default: nothing.
+    virtual void appendHash(Hasher& /*h*/, const RenderContext& /*ctx*/) const {}
+
 private:
     std::string name_;
+    std::uint64_t id_;
     std::vector<Node*> inputs_;  // non-owning; the Graph owns nodes
     std::map<std::string, ParamValue> params_;
 };

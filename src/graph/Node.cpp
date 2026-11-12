@@ -1,6 +1,14 @@
 #include "comp/graph/Node.h"
 
+#include <atomic>
+
 namespace comp {
+
+namespace {
+std::atomic<std::uint64_t> nextNodeId{1};
+}
+
+Node::Node(std::string name) : name_(std::move(name)), id_(nextNodeId.fetch_add(1)) {}
 
 void Node::setInput(int index, Node* node) {
     if (index < 0 || index >= maxInputs())

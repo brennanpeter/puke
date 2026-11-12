@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 
 #include "comp/graph/Node.h"
@@ -7,6 +8,7 @@
 namespace comp {
 
 class ThreadPool;
+class TileCache;
 
 struct EngineOptions {
     // Threads used for rendering, including the calling thread.
@@ -14,15 +16,21 @@ struct EngineOptions {
     int threads = 0;
 
     // Tiles are squares of this size on a fixed grid anchored at pixel (0, 0),
-    // so the same pixel always falls in the same tile (which a tile cache
-    // will rely on). Must be at least 1.
+    // so the same pixel always falls in the same tile (which the tile cache
+    // relies on). Must be at least 1.
     int tileSize = 64;
+
+    // Memory limit for cached tiles, in bytes. 0 turns the cache off.
+    // Off by default: a render that moves through frames gets nothing from
+    // it. Interactive use (a viewer re-rendering after each edit) does.
+    std::size_t cacheBytes = 0;
 };
 
 struct RenderStats {
     int nodesComputed = 0;
     long long pixelsComputed = 0;
-    long long tilesComputed = 0;  // compute() calls; an untiled node counts as one
+    long long tilesComputed = 0;   // compute() calls; an untiled node counts as one
+    long long tilesFromCache = 0;  // tiles reused instead of computed
 };
 
 // Splits `region` along the tile grid, row by row, top to bottom.
@@ -47,11 +55,18 @@ std::vector<Box> tilesOf(const Box& region, int tileSize);
 // (Node::supportsTiles) get their whole region in one call. Results are
 // identical for any thread count or tile size.
 //
+// Caching (when EngineOptions::cacheBytes > 0): every tile computed is kept
+// in a memory-bounded LRU cache, keyed by a hash of the node (its id, type,
+// parameters, the frame, its inputs' hashes and Node::appendHash) and the
+// tile's pixel region. Before computing, the engine looks up each tile it
+// needs; tiles found aren't computed, and nothing upstream is computed for
+// them either. Editing a node changes its hash and every hash downstream of
+// it, so only those tiles are recomputed. Stale tiles just age out.
+//
 // One Engine renders one thing at a time: don't call render() or info() on
 // the same Engine from several threads at once. Separate Engines are fine.
 //
-// Uncached for now. Planned next steps:
-//   - hash-based tile cache keyed on (node params, input hashes, frame)
+// Planned next steps:
 //   - render from an immutable snapshot so a GUI can edit during renders
 //   - run independent branches of the graph at the same time
 class Engine {
@@ -64,6 +79,11 @@ public:
     const EngineOptions& options() const { return options_; }
     int threads() const;  // actual thread count, with 0 resolved
 
+    // Changes the cache limit; 0 turns the cache off and frees it.
+    void setCacheBytes(std::size_t bytes);
+    void clearCache();
+    std::size_t cacheBytesUsed() const;
+
     ImageInfo info(const Node& output, const RenderContext& ctx);
     Image render(const Node& output, const RenderContext& ctx, const Box& region);
 
@@ -73,6 +93,7 @@ public:
 private:
     EngineOptions options_;
     std::unique_ptr<ThreadPool> pool_;
+    std::unique_ptr<TileCache> cache_;  // null when caching is off
     RenderStats stats_;
 };
 

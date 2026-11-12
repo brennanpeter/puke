@@ -261,8 +261,14 @@ static bool runCase(const Case& c, bool update) {
     }
 
     // However the work is split, the pixels must be identical, bit for bit:
-    // one thread with no tiling, and many threads with small odd-sized tiles
-    // that don't line up with anything in the comp.
+    // one thread with no tiling, many threads with small odd-sized tiles
+    // that don't line up with anything in the comp, and a second render
+    // served from the tile cache.
+    Engine cached(EngineOptions{.threads = 4, .tileSize = 16, .cacheBytes = 256 << 20});
+    cached.render(output, {}, region);
+    const Image fromCache = cached.render(output, {}, region);
+    if (cached.lastStats().tilesComputed != 0) problem = "second cached render recomputed tiles";
+
     if (problem.empty()) {
         for (const EngineOptions opts : {EngineOptions{1, 1 << 20}, EngineOptions{4, 7}}) {
             Graph g2;  // fresh graph: node names must be unique within one
@@ -279,6 +285,10 @@ static bool runCase(const Case& c, bool update) {
             }
         }
     }
+    if (problem.empty() && std::memcmp(fromCache.data(), actual.data(),
+                                       static_cast<std::size_t>(region.area()) * actual.numChannels() *
+                                           sizeof(float)) != 0)
+        problem = "render from the tile cache differs from the default render";
 
     if (problem.empty()) return true;
 

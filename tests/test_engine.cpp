@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -13,6 +14,7 @@
 #include "TestUtil.h"
 #include "comp/engine/Engine.h"
 #include "comp/engine/ThreadPool.h"
+#include "comp/engine/TileCache.h"
 #include "comp/graph/Graph.h"
 
 using namespace comp;
@@ -46,10 +48,13 @@ struct Probe {
     bool computedOnce() const { return computeCalls > 0 && pixelsComputed == requested.area(); }
 };
 
-// Solid colour `value` (all channels) inside `box`, zero outside.
+// Solid colour (all channels) inside `box`, zero outside. The colour is the
+// "value" parameter, so tests can edit it like a user would.
 class ConstantNode : public Node, public Probe {
 public:
-    ConstantNode(std::string name, float value, Box box) : Node(std::move(name)), value_(value), box_(box) {}
+    ConstantNode(std::string name, float value, Box box) : Node(std::move(name)), box_(box) {
+        setParam("value", static_cast<double>(value));
+    }
     const char* typeName() const override { return "Constant"; }
 
     ImageInfo computeInfo(const RenderContext&, std::span<const ImageInfo* const>) const override {
@@ -58,15 +63,15 @@ public:
     Image compute(const RenderContext&, const Box& region, std::span<const Image* const>) const override {
         record(region);
         Image out(region, kRGBA);
+        const float value = static_cast<float>(numberParam("value", 0.0));
         const Box fill = region.intersect(box_);
         for (int y = fill.y0; y < fill.y1; ++y)
             for (int x = fill.x0; x < fill.x1; ++x)
-                for (int c = 0; c < 4; ++c) out.pixel(x, y)[c] = value_;
+                for (int c = 0; c < 4; ++c) out.pixel(x, y)[c] = value;
         return out;
     }
 
 private:
-    float value_;
     Box box_;
 };
 
@@ -550,6 +555,160 @@ static void testErrorsFromTilesNameTheNode() {
     CHECK(near(e.render(c, {}, kFormat).pixel(5, 5)[0], 1.0f));
 }
 
+// ---------------------------------------------------------------- tile cache
+
+static bool samePixels(const Image& a, const Image& b) {
+    if (a.region() != b.region() || a.channels() != b.channels()) return false;
+    return std::memcmp(a.data(), b.data(), TileCache::bytesOf(a)) == 0;
+}
+
+static void testTileCacheLru() {
+    auto tile = [](int x) { return std::make_shared<const Image>(Box{x, 0, x + 4, 4}, kRGBA); };
+    const std::size_t tileBytes = 4 * 4 * 4 * sizeof(float);
+    TileCache cache(3 * tileBytes);
+
+    cache.put({1, {0, 0, 4, 4}}, tile(0));
+    cache.put({1, {4, 0, 8, 4}}, tile(4));
+    cache.put({2, {0, 0, 4, 4}}, tile(0));  // same region, different node state
+    CHECK(cache.size() == 3 && cache.bytesUsed() == 3 * tileBytes);
+    CHECK(cache.get({1, {0, 0, 4, 4}}) != nullptr);
+    CHECK(cache.get({3, {0, 0, 4, 4}}) == nullptr);
+
+    // Adding a fourth evicts the least recently used: {1, 4..8} (the
+    // {1, 0..4} tile was just used by get()).
+    cache.put({3, {0, 0, 4, 4}}, tile(0));
+    CHECK(cache.size() == 3);
+    CHECK(cache.get({1, {4, 0, 8, 4}}) == nullptr);
+    CHECK(cache.get({1, {0, 0, 4, 4}}) != nullptr);
+
+    // Re-adding a key doesn't double count.
+    cache.put({3, {0, 0, 4, 4}}, tile(0));
+    CHECK(cache.bytesUsed() == 3 * tileBytes);
+
+    // A tile bigger than the whole limit isn't stored, and doesn't evict anything.
+    cache.put({9, {0, 0, 100, 100}}, std::make_shared<const Image>(Box{0, 0, 100, 100}, kRGBA));
+    CHECK(cache.get({9, {0, 0, 100, 100}}) == nullptr && cache.size() == 3);
+
+    // Tiles handed out stay valid after eviction.
+    auto held = cache.get({2, {0, 0, 4, 4}});
+    cache.setMaxBytes(tileBytes);
+    CHECK(cache.size() == 1 && cache.bytesUsed() == tileBytes);
+    CHECK(held && held->region() == (Box{0, 0, 4, 4}));
+
+    cache.clear();
+    CHECK(cache.size() == 0 && cache.bytesUsed() == 0);
+}
+
+// Constant1 + Constant2, blurred: enough to see what an edit recomputes.
+struct CacheGraph {
+    Graph g;
+    ConstantNode& c1 = g.create<ConstantNode>("Constant1", 0.5f, Box{2, 2, 60, 30});
+    ConstantNode& c2 = g.create<ConstantNode>("Constant2", 0.25f, Box{0, 0, 40, 20});
+    AddNode& add = g.create<AddNode>("Add1");
+    BlurXNode& blur = g.create<BlurXNode>("Blur1", 2);
+    CacheGraph() {
+        g.connect(c1, add, 0);
+        g.connect(c2, add, 1);
+        g.connect(add, blur, 0);
+    }
+    void resetProbes() {
+        for (const Probe* p : {static_cast<const Probe*>(&c1), static_cast<const Probe*>(&c2),
+                               static_cast<const Probe*>(&add), static_cast<const Probe*>(&blur)})
+            p->resetProbe();
+    }
+};
+
+static void testCacheReusesTiles() {
+    CacheGraph cg;
+    Engine e(EngineOptions{.threads = 4, .tileSize = 16, .cacheBytes = 64 << 20});
+    const Image first = e.render(cg.blur, {}, kFormat);
+    CHECK(e.lastStats().tilesFromCache == 0);
+    CHECK(e.cacheBytesUsed() > 0);
+
+    // Rendering again computes nothing at all.
+    cg.resetProbes();
+    const Image again = e.render(cg.blur, {}, kFormat);
+    CHECK(samePixels(first, again));
+    CHECK(e.lastStats().tilesComputed == 0 && e.lastStats().nodesComputed == 0);
+    CHECK(e.lastStats().tilesFromCache == 4 * 2);  // Blur1's 64x32 in 16px tiles
+    CHECK(cg.c1.computeCalls == 0 && cg.add.computeCalls == 0 && cg.blur.computeCalls == 0);
+
+    // A region made of whole cached tiles is also free.
+    const Image part = e.render(cg.blur, {}, {16, 0, 48, 32});
+    CHECK(e.lastStats().tilesComputed == 0);
+    CHECK(samePixels(part, cropped(first, {16, 0, 48, 32})));
+
+    // Matches an uncached render exactly.
+    CacheGraph fresh;
+    CHECK(samePixels(first, Engine(EngineOptions{1, 1 << 20}).render(fresh.blur, {}, kFormat)));
+}
+
+static void testCacheRecomputesOnlyDownstreamOfAnEdit() {
+    CacheGraph cg;
+    Engine e(EngineOptions{.threads = 4, .tileSize = 16, .cacheBytes = 64 << 20});
+    e.render(cg.blur, {}, kFormat);
+
+    // Edit Constant2: it, Add1 and Blur1 recompute; Constant1 doesn't.
+    cg.resetProbes();
+    cg.c2.setParam("value", 1.0);
+    const Image edited = e.render(cg.blur, {}, kFormat);
+    CHECK(cg.c1.computeCalls == 0);
+    CHECK(cg.c2.computeCalls > 0 && cg.add.computeCalls > 0 && cg.blur.computeCalls > 0);
+
+    CacheGraph fresh;
+    fresh.c2.setParam("value", 1.0);
+    CHECK(samePixels(edited, Engine(EngineOptions{1, 1 << 20}).render(fresh.blur, {}, kFormat)));
+
+    // Undoing the edit brings back the original tiles: nothing recomputes.
+    cg.c2.setParam("value", 0.25);
+    e.render(cg.blur, {}, kFormat);
+    CHECK(e.lastStats().tilesComputed == 0);
+
+    // Reconnecting inputs changes the hash too.
+    cg.g.connect(cg.c1, cg.add, 1);
+    cg.resetProbes();
+    e.render(cg.blur, {}, kFormat);
+    CHECK(cg.c1.computeCalls == 0 && cg.add.computeCalls > 0);
+
+    // So does the frame: nothing is shared between frames.
+    e.render(cg.blur, {2.0}, kFormat);
+    CHECK(e.lastStats().tilesFromCache == 0);
+}
+
+static void testCacheKeepsNodesApart() {
+    // Two nodes of the same type with identical parameters still have their
+    // own tiles, because state outside parameters (here, the pixel function)
+    // can differ.
+    Graph g;
+    auto& a = g.create<test::SourceNode>("A", kFormat, kRGBA, [](int, int, int) { return 1.0f; }, kFormat);
+    auto& b = g.create<test::SourceNode>("B", kFormat, kRGBA, [](int, int, int) { return 2.0f; }, kFormat);
+    Engine e(EngineOptions{.cacheBytes = 64 << 20});
+    CHECK(near(e.render(a, {}, kFormat).pixel(3, 3)[0], 1.0f));
+    CHECK(near(e.render(b, {}, kFormat).pixel(3, 3)[0], 2.0f));
+}
+
+static void testCacheLimits() {
+    // A cache far too small to hold a render still gives correct pixels.
+    CacheGraph cg;
+    Engine e(EngineOptions{.threads = 4, .tileSize = 8, .cacheBytes = 3 * 8 * 8 * 4 * sizeof(float)});
+    CacheGraph fresh;
+    const Image ref = Engine(EngineOptions{1, 1 << 20}).render(fresh.blur, {}, kFormat);
+    for (int i = 0; i < 3; ++i) CHECK(samePixels(e.render(cg.blur, {}, kFormat), ref));
+    CHECK(e.cacheBytesUsed() <= 3 * 8 * 8 * 4 * sizeof(float));
+
+    // Turning the cache off frees it; turning it back on starts empty.
+    e.setCacheBytes(0);
+    CHECK(e.cacheBytesUsed() == 0);
+    e.render(cg.blur, {}, kFormat);
+    CHECK(e.lastStats().tilesFromCache == 0);
+    e.setCacheBytes(64 << 20);
+    e.render(cg.blur, {}, kFormat);
+    e.render(cg.blur, {}, kFormat);
+    CHECK(e.lastStats().tilesComputed == 0);
+    e.clearCache();
+    CHECK(e.cacheBytesUsed() == 0);
+}
+
 int main() {
     try {
         testRegionOfInterest();
@@ -569,6 +728,11 @@ int main() {
         testTiledRenderMatchesUntiled();
         testNodesCanOptOutOfTiles();
         testErrorsFromTilesNameTheNode();
+        testTileCacheLru();
+        testCacheReusesTiles();
+        testCacheRecomputesOnlyDownstreamOfAnEdit();
+        testCacheKeepsNodesApart();
+        testCacheLimits();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "unexpected exception: %s\n", e.what());
         ++test::failures;

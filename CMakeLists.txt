@@ -14,6 +14,7 @@ add_library(comp_core
     src/graph/Graph.cpp
     src/engine/Engine.cpp
     src/engine/ThreadPool.cpp
+    src/engine/TileCache.cpp
     src/nodes/ReadNode.cpp
     src/nodes/WriteNode.cpp
     src/nodes/GradeNode.cpp

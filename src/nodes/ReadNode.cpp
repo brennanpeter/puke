@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <vector>
 
@@ -74,6 +75,19 @@ ImageInfo ReadNode::fileInfo(const RenderContext& ctx) const {
         return info;
     }
     return infoFromSpec(openFile(name(), path).spec);
+}
+
+void ReadNode::appendHash(Hasher& h, const RenderContext& ctx) const {
+    const std::string path = resolvePath(ctx);
+    h.add(path);
+    if (path.empty()) return;
+    // If the file can't be stat'ed, hash nothing more: compute() will report
+    // the real error when it tries to open it.
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(path, ec);
+    if (!ec) h.add(static_cast<std::uint64_t>(size));
+    const auto mtime = std::filesystem::last_write_time(path, ec);
+    if (!ec) h.add(static_cast<long long>(mtime.time_since_epoch().count()));
 }
 
 ImageInfo ReadNode::computeInfo(const RenderContext& ctx, std::span<const ImageInfo* const>) const {

@@ -32,6 +32,10 @@ public:
     // repeat that work per tile. TODO: allow tiles once there's a file cache.
     bool supportsTiles() const override { return false; }
 
+    // The file's size and modification time, so cached tiles are dropped
+    // when the file on disk changes.
+    void appendHash(Hasher& h, const RenderContext& ctx) const override;
+
     // The file path that would be read for this context, or "" if the frame
     // is outside the range and `outside` is "black".
     std::string resolvePath(const RenderContext& ctx) const;
