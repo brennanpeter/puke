@@ -23,7 +23,12 @@ class EdgeItem;
 //   drag output -> input   connect; drag a connected input away to disconnect
 //   1 or double-click   view the node
 //   Delete / Backspace  remove the selected nodes
+//   F2                  rename the selected node
 //   F                   fit the graph in the window
+//   Ctrl+C/X/V, Ctrl+D  copy, cut, paste, duplicate (as actions in the main
+//                       window's Edit menu)
+//   Backdrops: created around the selected nodes; dragging one moves the
+//   nodes on it, and its bottom-right corner resizes it.
 //   wheel, middle-drag  zoom, pan
 class NodeGraphView : public QGraphicsView {
     Q_OBJECT
@@ -35,6 +40,18 @@ public:
     void fitAll();
     // The nodes selected in the graph (the document tracks only the main one).
     std::vector<comp::Node*> selectedNodes() const;
+
+    void selectNodes(const std::vector<comp::Node*>& nodes);
+    // Creates a node as the create popup does: below and connected to the
+    // selected node, or for a Backdrop, around the selected nodes.
+    void createAt(const std::string& type, QPointF scenePos);
+
+    // The clipboard holds nodes as project text.
+    void copySelection();
+    void cutSelection();
+    void paste();
+    void duplicateSelection();
+    void renameSelected();
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
@@ -51,7 +68,8 @@ private:
     void syncSelectionFromDoc();
     void updateEdges();
     void layoutUnplaced();
-    void createAt(const std::string& type, QPointF scenePos);
+    void createBackdrop(QPointF scenePos);
+    void pasteText(const std::string& text, QPointF offset);
 
     Document& doc_;
     QGraphicsScene scene_;

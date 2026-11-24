@@ -135,6 +135,23 @@ static void testPositions() {
                  "p: node 1 (G): 'position' must be a list of 2 numbers");
 }
 
+static void testSomeNodes() {
+    Graph g;
+    auto& read = add(g, "Read", "Read1");
+    auto& grade = add(g, "Grade", "Grade1");
+    auto& xf = add(g, "Transform", "Transform1");
+    g.connect(read, grade, 0);
+    g.connect(grade, xf, 0);
+    grade.setParam("mix", 0.5);
+    // Grade1 and Transform1, but not Read1: Grade1's input comes out unconnected.
+    const Graph part = projectFromJson(nodesToJson(g, {&xf, &grade}));
+    CHECK(part.nodes().size() == 2 && part.nodes()[0]->name() == "Grade1");  // graph order
+    CHECK(part.find("Grade1")->input(0) == nullptr);
+    CHECK(part.find("Transform1")->input(0) == part.find("Grade1"));
+    CHECK(part.find("Grade1")->param<double>("mix") == 0.5);
+    CHECK(projectFromJson(nodesToJson(g, {})).nodes().empty());
+}
+
 static void testLoadOrderAndOptionalFields() {
     // Consumers may come before their inputs; inputs and params may be omitted.
     const Graph g = projectFromJson(R"({"format": "comp", "version": 1, "nodes": [
@@ -263,6 +280,7 @@ int main() {
         testRoundTrip();
         testLoadOrderAndOptionalFields();
         testPositions();
+        testSomeNodes();
         testErrors();
         testFiles();
         testLoadedGraphRenders();

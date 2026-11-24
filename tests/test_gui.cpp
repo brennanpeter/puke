@@ -6,6 +6,8 @@
 // the end.
 
 #include <QApplication>
+#include <QClipboard>
+#include <QGraphicsItem>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -245,11 +247,118 @@ int main(int argc, char** argv) {
             CHECK(!doc.dirty());
         }
 
+        // --- Copy and paste, duplicate, rename, backdrops.
+        {
+            QUndoStack& undo = doc.undoStack();
+            NodeGraphView& gv = w.graphView();
+            auto find = [&](const char* n) { return doc.graph().find(n); };
+            comp::Node& g1 = *find("Grade1");
+            comp::Node& x1 = *find("Transform1");
+            const std::string saved = comp::projectToJson(doc.graph());
+
+            // Two connected nodes, pasted: renamed, still connected to each
+            // other, but not to Read1, which wasn't copied.
+            const auto pasted = doc.pasteNodes(doc.copyNodes({&x1, &g1}), {200, 10});
+            CHECK(pasted.size() == 2 && pasted[0]->name() == "Grade2" && pasted[1]->name() == "Transform2");
+            CHECK(pasted[1]->input(0) == pasted[0] && pasted[0]->input(0) == nullptr);
+            CHECK(pasted[0]->params() == g1.params());
+            CHECK((pasted[0]->position() == comp::Vec2{200, 100}));
+            CHECK(undo.count() == 1);
+            undo.undo();
+            CHECK(comp::projectToJson(doc.graph()) == saved);
+            CHECK_THROWS(doc.pasteNodes("not a project", {}), "pasted nodes");
+            CHECK(undo.count() == 1);  // nothing recorded
+
+            // Through the view and the clipboard.
+            gv.selectNodes({&g1});
+            gv.copySelection();
+            CHECK(QGuiApplication::clipboard()->text().contains("\"Grade1\""));
+            gv.paste();
+            CHECK(find("Grade2") && doc.selected() == find("Grade2"));
+            CHECK(gv.selectedNodes() == std::vector<comp::Node*>{find("Grade2")});
+            gv.duplicateSelection();
+            CHECK(find("Grade3") && doc.selected() == find("Grade3"));
+            gv.cutSelection();
+            CHECK(!find("Grade3") && QGuiApplication::clipboard()->text().contains("Grade3"));
+            gv.paste();  // back, under its own name again
+            CHECK(find("Grade3"));
+
+            // Rename through the properties panel's name field.
+            gv.selectNodes({&g1});
+            QApplication::processEvents();
+            auto* name = w.findChild<QLineEdit*>("nodeName");
+            CHECK(name && name->text() == "Grade1");
+            if (name) {
+                name->setText("Hero");
+                emit name->editingFinished();
+            }
+            CHECK(waitFor([&] { return g1.name() == "Hero"; }));
+            CHECK(x1.input(0) == &g1);
+
+            // A backdrop around two nodes: sized to hold them.
+            doc.removeNodes({find("Grade2"), find("Grade3")});  // the copies, out of the way
+            comp::Node& read1 = *find("Read1");
+            gv.selectNodes({&read1, &g1});
+            CHECK(gv.selectedNodes().size() == 2);
+            const int stepsBefore = undo.count();
+            gv.createAt("Backdrop", {});
+            comp::Node* bd = find("Backdrop1");
+            CHECK(bd && undo.count() == stepsBefore + 1);
+            if (bd) {
+                const comp::Vec2 at = *bd->position(), size = bd->vec2Param("size", {});
+                for (comp::Node* n : {&read1, &g1}) {
+                    const comp::Vec2 p = *n->position();
+                    CHECK(p[0] > at[0] && p[0] < at[0] + size[0] && p[1] > at[1] && p[1] < at[1] + size[1]);
+                }
+
+                // Dragging it by its title bar carries the nodes on it, as
+                // one undo step.
+                gv.resetTransform();
+                gv.centerOn(at[0] + size[0] / 2, at[1] + size[1] / 2);
+                QApplication::processEvents();
+                QWidget* vp = gv.viewport();
+                auto mouse = [&](QEvent::Type t, QPointF scene, Qt::MouseButtons held) {
+                    const QPoint p = gv.mapFromScene(scene);
+                    QMouseEvent e(t, QPointF(p), QPointF(vp->mapToGlobal(p)), Qt::LeftButton, held, Qt::NoModifier);
+                    QApplication::sendEvent(vp, &e);
+                };
+                gv.selectNodes({});
+                const QPointF grab(at[0] + 30, at[1] + 10);
+                const comp::Vec2 heroBefore = *g1.position();
+                const int s0 = undo.count();
+                mouse(QEvent::MouseButtonPress, grab, Qt::LeftButton);
+                mouse(QEvent::MouseMove, grab + QPointF(20, 10), Qt::LeftButton);
+                mouse(QEvent::MouseMove, grab + QPointF(60, 40), Qt::LeftButton);
+                mouse(QEvent::MouseButtonRelease, grab + QPointF(60, 40), Qt::NoButton);
+                CHECK((*bd->position() == comp::Vec2{at[0] + 60, at[1] + 40}));
+                CHECK((*g1.position() == comp::Vec2{heroBefore[0] + 60, heroBefore[1] + 40}));
+                CHECK(undo.count() == s0 + 1);
+
+                // Its bottom-right corner resizes it.
+                const QPointF corner(at[0] + 60 + size[0] - 4, at[1] + 40 + size[1] - 4);
+                gv.centerOn(corner);
+                QApplication::processEvents();
+                mouse(QEvent::MouseButtonPress, corner, Qt::LeftButton);
+                mouse(QEvent::MouseMove, corner + QPointF(50, 30), Qt::LeftButton);
+                mouse(QEvent::MouseButtonRelease, corner + QPointF(50, 30), Qt::NoButton);
+                CHECK((bd->vec2Param("size", {}) == comp::Vec2{size[0] + 50, size[1] + 30}));
+                CHECK((*g1.position() == comp::Vec2{heroBefore[0] + 60, heroBefore[1] + 40}));  // nodes stay
+                CHECK(undo.count() == s0 + 2);
+            }
+
+            while (undo.canUndo()) undo.undo();
+            CHECK(comp::projectToJson(doc.graph()) == saved);
+        }
+
         if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {
             doc.setParam(*doc.graph().find("Grade1"), "multiply", comp::Color{1.4, 1.1, 0.8, 1});
             doc.setParam(*doc.graph().find("Transform1"), "rotate", 12.0);
             doc.setParam(*doc.graph().find("Transform1"), "scale", comp::Vec2{0.6, 0.6});
             doc.setParam(*doc.graph().find("Merge1"), "operation", std::string("over"));
+            doc.setSelected(doc.graph().find("Grade1"));
+            w.graphView().selectNodes({doc.graph().find("Read1"), doc.graph().find("Grade1"), doc.graph().find("Transform1")});
+            w.graphView().createAt("Backdrop", {});
+            doc.setParam(*doc.graph().find("Backdrop1"), "label", std::string("Plate prep"));
             doc.setSelected(doc.graph().find("Grade1"));
             doc.setViewed(doc.graph().find("Merge1"));
             CHECK(waitForRender(viewer));

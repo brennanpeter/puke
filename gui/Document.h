@@ -67,6 +67,15 @@ public:
     // Throws comp::Error if the name is empty or taken.
     void renameNode(comp::Node& node, const std::string& name);
 
+    // Copy and paste: nodes as project text (the .comp format), so they can
+    // go through the clipboard, between windows or into a text editor.
+    std::string copyNodes(const std::vector<comp::Node*>& nodes) const;
+    // Adds the nodes in `text` as one undo step and returns them. Names
+    // already in use get the next free number (Grade1 -> Grade2), and
+    // connections between pasted nodes are kept. Positions are shifted by
+    // `offset`. Throws comp::Error if the text isn't a project.
+    std::vector<comp::Node*> pasteNodes(const std::string& text, QPointF offset);
+
     // Groups the edits made until endEdit() into one undo step.
     void beginEdit(const QString& text) { undo_.beginMacro(text); }
     void endEdit() { undo_.endMacro(); }

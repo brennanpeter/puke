@@ -34,6 +34,7 @@ add_library(comp_core
     src/nodes/TransformNode.cpp
     src/nodes/Registry.cpp
     src/nodes/ColorSpaceNode.cpp
+    src/nodes/BackdropNode.cpp
     src/project/Project.cpp
     src/color/ColorConfig.cpp
     src/ofx/OfxHost.cpp

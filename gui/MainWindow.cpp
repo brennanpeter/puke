@@ -87,6 +87,21 @@ MainWindow::MainWindow() {
     edit->addAction(undo);
     edit->addAction(redo);
     edit->addSeparator();
+    // Their shortcuts only act in the node graph, so the usual keys still
+    // copy and paste text in the properties' fields.
+    auto graphAction = [&](const QString& text, const QKeySequence& key, auto fn) {
+        QAction* a = edit->addAction(text, this, fn);
+        a->setShortcut(key);
+        a->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        graph_->addAction(a);
+        return a;
+    };
+    graphAction("Cu&t", QKeySequence::Cut, [this] { graph_->cutSelection(); });
+    graphAction("&Copy", QKeySequence::Copy, [this] { graph_->copySelection(); });
+    graphAction("&Paste", QKeySequence::Paste, [this] { graph_->paste(); });
+    graphAction("D&uplicate", QKeySequence(Qt::CTRL | Qt::Key_D), [this] { graph_->duplicateSelection(); });
+    edit->addSeparator();
+    edit->addAction("&Rename... (F2)", this, [this] { graph_->renameSelected(); });
     edit->addAction("&Delete nodes", QKeySequence::Delete, this, [this] { doc_->removeNodes(graph_->selectedNodes()); });
 
     // --- Nodes: built-ins, then OFX plugins in a submenu

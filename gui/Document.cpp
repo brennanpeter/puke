@@ -3,6 +3,7 @@
 #include <QUndoCommand>
 
 #include <algorithm>
+#include <cctype>
 
 #include "comp/engine/Engine.h"
 #include "comp/nodes/Registry.h"
@@ -215,6 +216,23 @@ void Document::setViewed(comp::Node* node) {
     emit renderNeeded();
 }
 
+namespace {
+
+// "Grade12" -> "Grade1", "Grade13"...: the first name with `base`'s letters
+// that `taken` rejects.
+template <typename Taken>
+std::string nextFreeName(const std::string& name, Taken taken) {
+    std::string base = name;
+    while (!base.empty() && std::isdigit(static_cast<unsigned char>(base.back()))) base.pop_back();
+    if (base.empty()) base = "Node";
+    for (int i = 1;; ++i) {
+        std::string n = base + std::to_string(i);
+        if (!taken(n)) return n;
+    }
+}
+
+}  // namespace
+
 std::string Document::freeName(const std::string& type) const {
     std::string base = type;
     if (base.rfind("ofx:", 0) == 0) base = base.substr(base.find_last_of(".:") + 1);
@@ -334,6 +352,40 @@ void Document::renameNode(comp::Node& node, const std::string& name) {
     if (name.empty()) throw comp::Error("node name cannot be empty");
     if (graph_->find(name)) throw comp::Error("a node named '" + name + "' already exists");
     undo_.push(new Rename(*this, node, name));
+}
+
+std::string Document::copyNodes(const std::vector<comp::Node*>& nodes) const {
+    return comp::nodesToJson(*graph_, std::vector<const comp::Node*>(nodes.begin(), nodes.end()));
+}
+
+std::vector<comp::Node*> Document::pasteNodes(const std::string& text, QPointF offset) {
+    comp::Graph pasted = comp::projectFromJson(text, "pasted nodes");
+    if (pasted.nodes().empty()) return {};
+
+    // Note the connections, then take the nodes out (which disconnects them).
+    std::vector<NodePtr> nodes = pasted.nodes();
+    std::vector<Connection> conns;
+    for (const auto& n : nodes)
+        for (int i = 0; i < n->maxInputs(); ++i)
+            if (comp::Node* in = n->input(i)) conns.push_back({in->shared_from_this(), n, i});
+    for (const auto& n : nodes) pasted.take(*n);
+
+    std::vector<std::string> names;  // the pasted nodes' new names so far
+    auto taken = [&](const std::string& n) {
+        return graph_->find(n) || std::find(names.begin(), names.end(), n) != names.end();
+    };
+    for (const auto& n : nodes) {
+        if (taken(n->name())) n->setName(nextFreeName(n->name(), taken));
+        names.push_back(n->name());
+        if (const auto& p = n->position()) n->setPosition(comp::Vec2{(*p)[0] + offset.x(), (*p)[1] + offset.y()});
+    }
+
+    std::vector<comp::Node*> out;
+    for (const auto& n : nodes) out.push_back(n.get());
+    const QString text_ = nodes.size() == 1 ? "Paste " + QString::fromStdString(nodes[0]->name())
+                                            : QString("Paste %1 nodes").arg(nodes.size());
+    undo_.push(new AddNodes(*this, text_, std::move(nodes), std::move(conns)));
+    return out;
 }
 
 // --- files
