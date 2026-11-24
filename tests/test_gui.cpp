@@ -217,7 +217,7 @@ int main(int argc, char** argv) {
             CHECK_THROWS(doc.renameNode(g1, "Read1"), "a node named 'Read1' already exists");
             doc.moveNodes({{&g1, QPointF(300, 90)}, {&r1, QPointF(300, 0)}});
             doc.disconnect(m1, 1);
-            CHECK_THROWS(doc.connectNodes(*doc.graph().find("Gain1"), r1, 0), "out of range");  // Read has no inputs
+            CHECK_THROWS(doc.connectNodes(*doc.graph().find("Gain1"), r1, 0), "Read1");  // a cycle, and Read has no inputs
             comp::Node& extra = doc.createNode("ColorSpace", {500, 0}, &m1);
             doc.setParam(extra, "out", std::string("ACEScct"));
             doc.setViewed(&g1);
