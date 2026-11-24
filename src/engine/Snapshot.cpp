@@ -1,5 +1,6 @@
 #include "comp/engine/Snapshot.h"
 
+#include <string>
 #include <unordered_map>
 
 namespace comp {
@@ -55,6 +56,32 @@ Snapshot Snapshot::of(const Node& output) {
         e.inputs.assign(node->maxInputs(), -1);
         for (int j = 0; j < node->maxInputs(); ++j)
             if (const Node* in = node->input(j)) e.inputs[j] = index.at(in);
+        snap.entries_.push_back(std::move(e));
+    }
+    return snap;
+}
+
+Snapshot Snapshot::upstream(int index) const {
+    const Entry& out = output();
+    if (index < 0 || index >= static_cast<int>(out.inputs.size()) || out.inputs[index] < 0)
+        throw Error(out.node->name() + ": input " + std::to_string(index) + " is not connected");
+    // Entries are in dependency order, so walking down from the input finds
+    // everything it needs.
+    const int top = out.inputs[index];
+    std::vector<bool> needed(top + 1, false);
+    needed[top] = true;
+    for (int i = top; i >= 0; --i)
+        if (needed[i])
+            for (int in : entries_[i].inputs)
+                if (in >= 0) needed[in] = true;
+    std::vector<int> remap(top + 1, -1);
+    Snapshot snap;
+    for (int i = 0; i <= top; ++i) {
+        if (!needed[i]) continue;
+        remap[i] = static_cast<int>(snap.entries_.size());
+        Entry e = entries_[i];
+        for (int& in : e.inputs)
+            if (in >= 0) in = remap[in];
         snap.entries_.push_back(std::move(e));
     }
     return snap;

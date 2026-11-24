@@ -42,6 +42,10 @@ public:
     // Renders the input's full data window for this frame and writes the file.
     // Returns the path that was written.
     std::string execute(Engine& engine, const RenderContext& ctx) const;
+    // The same from a snapshot whose output is this node, taken earlier on
+    // the editing thread: renders and writes what the graph was then, on any
+    // thread, while the graph goes on being edited.
+    std::string execute(Engine& engine, const Snapshot& snapshot, const RenderContext& ctx) const;
 };
 
 }  // namespace comp

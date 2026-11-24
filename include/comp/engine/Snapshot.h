@@ -33,6 +33,10 @@ public:
     // connected or there's a cycle.
     static Snapshot of(const Node& output);
 
+    // The part of this snapshot that feeds the output's input `index`, as a
+    // snapshot whose output is that input. Throws Error if it's unconnected.
+    Snapshot upstream(int index) const;
+
     // Inputs before the nodes that use them; the output is last.
     const std::vector<Entry>& entries() const { return entries_; }
     const Entry& output() const { return entries_.back(); }

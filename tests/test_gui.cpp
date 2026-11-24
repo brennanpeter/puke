@@ -15,6 +15,10 @@
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPlainTextEdit>
+#include <QProgressBar>
+#include <QPushButton>
+#include <QLabel>
 #include <QSpinBox>
 #include <QToolButton>
 #include <QUndoStack>
@@ -28,10 +32,12 @@
 #include "MainWindow.h"
 #include "NodeGraphView.h"
 #include "PropertiesPanel.h"
+#include "RenderDialog.h"
 #include "TestUtil.h"
 #include "Timeline.h"
 #include "Viewer.h"
 #include "comp/engine/Engine.h"
+#include "comp/nodes/Registry.h"
 #include "comp/project/Project.h"
 
 using namespace compgui;
@@ -435,6 +441,92 @@ int main(int argc, char** argv) {
             CHECK(w.openProject(path));
             CHECK((doc.settings() == comp::ProjectSettings{1001, 1003, 24}) && doc.frame() == 1001);
             CHECK(last->value() == 1003);
+        }
+
+        // --- Rendering Write nodes from the GUI.
+        {
+            RenderDialog& rd = w.renderDialog();
+            int finishedCount = 0, lastFailures = -1;
+            bool lastCancelled = false;
+            QObject::connect(&rd, &RenderDialog::renderFinished, [&](int failures, bool cancelled) {
+                ++finishedCount;
+                lastFailures = failures;
+                lastCancelled = cancelled;
+            });
+            auto renderAndWait = [&] {
+                const int before = finishedCount;
+                rd.startRender();
+                return waitFor([&] { return finishedCount > before; }, 60000);
+            };
+            auto* log = find<QPlainTextEdit>(rd, "renderLog");
+            auto* writes = find<QListWidget>(rd, "renderWrites");
+
+            // Read2 (the sequence) -> Grade2 (x2) -> Write. The dialog offers
+            // the selected Write and the project's range.
+            comp::Node& g2 = *doc.graph().find("Grade2");
+            comp::Node& write = doc.createNode("Write", {400, 180}, &g2);
+            doc.setParam(write, "file", (dir / "out/r.####.exr").string());
+            doc.setParam(write, "datatype", std::string("float"));
+            comp::Node& other = doc.createNode("Write", {600, 180}, &g2);
+            doc.setParam(other, "file", (dir / "out/other.####.exr").string());
+            doc.setSelected(&write);
+            w.showRenderDialog();
+            CHECK(rd.isVisible() && writes && writes->count() == 2);
+            CHECK(writes->item(0)->checkState() == Qt::Checked && writes->item(1)->checkState() == Qt::Unchecked);
+            CHECK(find<QSpinBox>(rd, "renderFirst")->value() == 1001 && find<QSpinBox>(rd, "renderLast")->value() == 1003);
+
+            // Edits made once it has started don't change what's written.
+            const int before = finishedCount;
+            rd.startRender();
+            CHECK(rd.rendering() && !find<QPushButton>(rd, "renderStart")->isEnabled());
+            doc.setParam(g2, "multiply", 10.0);
+            doc.setParam(write, "file", (dir / "out/moved.####.exr").string());
+            CHECK(waitFor([&] { return finishedCount > before; }, 60000));
+            CHECK(lastFailures == 0 && !lastCancelled && !rd.rendering());
+            CHECK(find<QProgressBar>(rd, "renderProgress")->value() == 3);
+            CHECK(log && log->toPlainText().contains("frame 1002 Write1 -> "));
+            CHECK(find<QLabel>(rd, "renderStatus")->text() == "Finished: 3 files written.");
+            comp::Engine e;
+            for (int f = 1001; f <= 1003; ++f) {
+                comp::Graph check;
+                comp::Node& r = check.add(comp::createNode("Read", "R"));
+                r.setParam("file", (dir / ("out/r." + std::to_string(f) + ".exr")).string());
+                CHECK(std::fabs(e.render(r, {}, {5, 5, 6, 6}).pixel(5, 5)[0] - 0.2f * (f - 1000)) < 1e-6f);
+            }
+            CHECK(!fs::exists(dir / "out/moved.1001.exr") && !fs::exists(dir / "out/other.1001.exr"));
+
+            // Failures are reported and don't stop the rest: frame 1004
+            // doesn't exist.
+            find<QSpinBox>(rd, "renderLast")->setValue(1004);
+            CHECK(renderAndWait());
+            CHECK(lastFailures == 1 && log->toPlainText().contains("frame 1004 Write1 failed: "));
+            CHECK(fs::exists(dir / "out/moved.1003.exr"));  // a new render sees the edits
+
+            // Cancelling stops before the next file and leaves no partial one.
+            doc.setParam(write, "file", (dir / "many/m.####.exr").string());
+            doc.setParam(*doc.graph().find("Read2"), "file", (dir / "plate.exr").string());  // a still: any frame
+            rd.reset();
+            find<QSpinBox>(rd, "renderFirst")->setValue(1);
+            find<QSpinBox>(rd, "renderLast")->setValue(2000);
+            QObject::connect(find<QProgressBar>(rd, "renderProgress"), &QProgressBar::valueChanged, &rd,
+                             [&](int v) {
+                                 if (v == 1) rd.cancelRender();
+                             });
+            CHECK(renderAndWait());
+            CHECK(lastCancelled);
+            int written = 0;
+            for (const auto& entry : fs::directory_iterator(dir / "many")) {
+                CHECK(entry.path().extension() == ".exr");  // no .partial files
+                ++written;
+            }
+            CHECK(written >= 1 && written < 2000);
+            CHECK(find<QLabel>(rd, "renderStatus")->text().startsWith("Cancelled after"));
+
+            // Nothing to render: said in the log, nothing starts.
+            for (int i = 0; i < writes->count(); ++i) writes->item(i)->setCheckState(Qt::Unchecked);
+            rd.startRender();
+            CHECK(!rd.rendering() && log->toPlainText().contains("no Write nodes to render"));
+            rd.close();
         }
 
         if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {

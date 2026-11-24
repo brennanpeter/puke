@@ -7,6 +7,7 @@ namespace compgui {
 class Document;
 class NodeGraphView;
 class PropertiesPanel;
+class RenderDialog;
 class Timeline;
 class Viewer;
 
@@ -20,12 +21,15 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     MainWindow();
+    ~MainWindow() override;
 
     Document& document() { return *doc_; }
     Viewer& viewer() { return *viewer_; }
     NodeGraphView& graphView() { return *graph_; }
     PropertiesPanel& properties() { return *properties_; }
     Timeline& timeline() { return *timeline_; }
+    RenderDialog& renderDialog() { return *render_; }
+    void showRenderDialog();
 
     bool openProject(const QString& path);  // reports errors in a dialog
 
@@ -43,6 +47,7 @@ private:
     NodeGraphView* graph_;
     PropertiesPanel* properties_;
     Timeline* timeline_;
+    RenderDialog* render_;
 };
 
 }  // namespace compgui

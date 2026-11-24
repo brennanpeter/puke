@@ -1,5 +1,7 @@
 #include "comp/nodes/WriteNode.h"
 
+#include "comp/engine/Snapshot.h"
+
 #include "Specs.h"
 
 #include "comp/color/ColorConfig.h"
@@ -36,11 +38,17 @@ int alphaIndex(const ChannelList& channels) {
 }  // namespace
 
 std::string WriteNode::execute(Engine& engine, const RenderContext& ctx) const {
+    return execute(engine, Snapshot::of(*this), ctx);  // reports an unconnected input by our name
+}
+
+std::string WriteNode::execute(Engine& engine, const Snapshot& snapshot, const RenderContext& ctx) const {
+    if (snapshot.output().node != this) throw Error(name() + ": the snapshot is of another node");
+    ParamScope scope(*this, *snapshot.output().params);  // our own parameters, as they were too
+
     const int frame = static_cast<int>(std::floor(ctx.frame + 0.5));
     const std::string path = expandFramePattern(param<std::string>("file"), frame);
 
-    // Asking about this node (not its input) reports an unconnected input by our name.
-    const ImageInfo info = engine.info(*this, ctx);
+    const ImageInfo info = engine.info(snapshot, ctx);
     if (info.channels.empty()) throw Error(name() + ": input has no channels");
 
     // Formats can't store an empty image; write a single black pixel instead.
@@ -50,7 +58,7 @@ std::string WriteNode::execute(Engine& engine, const RenderContext& ctx) const {
                   info.displayWindow.y0 + 1};
 
     // Render the input directly; going through this node would only add a copy.
-    Image img = engine.render(requireInput(0), ctx, window);
+    Image img = engine.render(snapshot.upstream(0), ctx, window);
 
     OIIO::ImageSpec spec(window.width(), window.height(), img.numChannels(),
                          parseDataType(name(), param<std::string>("datatype", "half")));

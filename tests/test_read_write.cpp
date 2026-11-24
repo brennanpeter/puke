@@ -13,9 +13,11 @@
 #include "TestUtil.h"
 #include "comp/core/FramePattern.h"
 #include "comp/engine/Engine.h"
+#include "comp/engine/Snapshot.h"
 #include "comp/graph/Graph.h"
 #include "comp/color/ColorConfig.h"
 #include "comp/nodes/ReadNode.h"
+#include "comp/nodes/Registry.h"
 #include "comp/nodes/WriteNode.h"
 
 namespace OIIO = OIIO_NAMESPACE;
@@ -476,6 +478,38 @@ static void testColorSpaces() {
     CHECK(!fs::exists(tmp("color_cct.exr.partial")));
 }
 
+// A Write run from a snapshot writes the graph as it was when the snapshot
+// was taken, its own parameters (the file name) included.
+static void testWriteFromSnapshot() {
+    Graph g;
+    auto& src = g.create<SourceNode>("Src", Box{0, 0, 8, 4}, ChannelList{"R", "G", "B", "A"},
+                                     [](int, int, int c) { return c == 3 ? 1.0f : 0.25f; });
+    auto& grade = g.add(createNode("Grade", "Grade1"));
+    auto& write = g.create<WriteNode>("Write1");
+    g.connect(src, grade, 0);
+    g.connect(grade, write, 0);
+    grade.setParam("multiply", 2.0);
+    write.setParam("file", tmp("snap/before.exr"));
+    write.setParam("datatype", std::string("float"));
+
+    const Snapshot snap = Snapshot::of(write);
+    grade.setParam("multiply", 3.0);  // edits after the snapshot...
+    write.setParam("file", tmp("snap/after.exr"));
+    g.disconnect(grade, 0);
+    CHECK(write.execute(g_engine, snap, {}) == tmp("snap/before.exr"));  // ...don't show
+    CHECK(!fs::exists(tmp("snap/after.exr")));
+    auto& check = g.create<ReadNode>("Check");
+    check.setParam("file", tmp("snap/before.exr"));
+    CHECK(g_engine.render(check, {}, {0, 0, 8, 4}).pixel(3, 2)[0] == 0.5f);
+
+    CHECK_THROWS(write.execute(g_engine, Snapshot::of(check), {}), "Write1: the snapshot is of another node");
+    // upstream() is the part feeding an input.
+    const Snapshot up = snap.upstream(0);
+    CHECK(up.output().node == &grade && up.entries().size() == 2 && up.entries()[0].node == &src);
+    CHECK(up.output().inputs == std::vector<int>{0});
+    CHECK_THROWS(up.upstream(0).upstream(0), "Src: input 0 is not connected");
+}
+
 int main() {
     g_dir = fs::current_path() / "test_read_write_tmp";
     fs::remove_all(g_dir);
@@ -494,6 +528,7 @@ int main() {
         testWriteIsPassThrough();
         testCacheSeesFileChanges();
         testColorSpaces();
+        testWriteFromSnapshot();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "unexpected exception: %s\n", e.what());
         ++test::failures;
