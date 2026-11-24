@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QPainter>
 #include <QSpinBox>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -107,6 +108,11 @@ void RenderWorker::run() {
             const int pad = std::max(f.width(), f.height()) / 4;
             comp::Box region = f.unite(info.dataWindow.intersect(f.padded(pad)));
             if (f.empty()) region = info.dataWindow.intersect({-4096, -4096, 4096, 4096});
+            res.full = region;
+            if (req.visible) {  // only what's on screen, with a margin for small pans
+                const comp::Box& v = *req.visible;
+                region = region.intersect(v.padded(std::max(32, std::max(v.width(), v.height()) / 8)));
+            }
             res.region = region;
             auto working = std::make_shared<comp::Image>(engine.render(*req.snapshot, ctx, region));
             res.image = toDisplay(*working, req);
@@ -131,8 +137,22 @@ ViewerCanvas::ViewerCanvas(QWidget* parent) : QWidget(parent) {
 void ViewerCanvas::setResult(const ViewResult& r) {
     result_ = r;
     message_.clear();
-    if (!fitted_ && !r.image.isNull()) fit();
+    if (!placed_ && !r.full.empty()) fit();  // the first picture: fit it; after that, keep the user's view
     update();
+}
+
+std::optional<comp::Box> ViewerCanvas::visibleRegion() const {
+    if (!placed_ || width() <= 0 || height() <= 0) return std::nullopt;
+    const QPointF a = toImage(QPointF(0, 0)), b = toImage(QPointF(width(), height()));
+    return comp::Box{int(std::floor(a.x())), int(std::floor(a.y())), int(std::ceil(b.x())), int(std::ceil(b.y()))};
+}
+
+void ViewerCanvas::centerOn(QPointF p) {
+    offset_ = QPointF(width() / 2.0, height() / 2.0) - p * zoom_;
+    fitted_ = false;
+    placed_ = true;
+    update();
+    emit viewChanged();
 }
 
 void ViewerCanvas::setMessage(const QString& m) {
@@ -141,26 +161,31 @@ void ViewerCanvas::setMessage(const QString& m) {
 }
 
 void ViewerCanvas::fit() {
-    const comp::Box f = result_.displayWindow.empty() ? result_.region : result_.displayWindow;
+    const comp::Box f = result_.displayWindow.empty() ? result_.full : result_.displayWindow;
     if (f.empty()) return;
     zoom_ = std::min((width() - 40.0) / f.width(), (height() - 40.0) / f.height());
     zoom_ = std::max(zoom_, 0.01);
     offset_ = QPointF(width() / 2.0 - (f.x0 + f.width() / 2.0) * zoom_, height() / 2.0 - (f.y0 + f.height() / 2.0) * zoom_);
     fitted_ = true;
+    placed_ = true;
     update();
+    emit viewChanged();
 }
 
 void ViewerCanvas::oneToOne() {
     const QPointF centre = toImage(QPointF(width() / 2.0, height() / 2.0));
     zoom_ = 1;
     offset_ = QPointF(width() / 2.0, height() / 2.0) - centre;
+    fitted_ = false;
     update();
+    emit viewChanged();
 }
 
 QPointF ViewerCanvas::toImage(QPointF w) const { return (w - offset_) / zoom_; }
 
 void ViewerCanvas::resizeEvent(QResizeEvent*) {
     if (fitted_) fit();
+    else emit viewChanged();
 }
 
 void ViewerCanvas::paintEvent(QPaintEvent*) {
@@ -171,13 +196,15 @@ void ViewerCanvas::paintEvent(QPaintEvent*) {
         const QRectF target(offset_.x() + r.x0 * zoom_, offset_.y() + r.y0 * zoom_, r.width() * zoom_, r.height() * zoom_);
         p.setRenderHint(QPainter::SmoothPixmapTransform, zoom_ < 1);
         p.drawImage(target, result_.image);
+    }
+    if (!result_.full.empty()) {
         const comp::Box& f = result_.displayWindow;
         p.setPen(QPen(QColor(150, 150, 150), 1, Qt::DashLine));
         p.setBrush(Qt::NoBrush);
         p.drawRect(QRectF(offset_.x() + f.x0 * zoom_, offset_.y() + f.y0 * zoom_, f.width() * zoom_, f.height() * zoom_));
     }
     p.setPen(QColor(200, 200, 200));
-    if (!result_.image.isNull()) {
+    if (!result_.full.empty()) {
         const comp::Box& f = result_.displayWindow;
         p.drawText(rect().adjusted(8, 6, -8, -6), Qt::AlignTop | Qt::AlignRight,
                    QString("%1x%2   %3%   %4 ms").arg(f.width()).arg(f.height()).arg(int(zoom_ * 100)).arg(result_.milliseconds, 0, 'f', 0));
@@ -197,6 +224,7 @@ void ViewerCanvas::wheelEvent(QWheelEvent* e) {
     offset_ = at - before * zoom_;
     fitted_ = false;
     update();
+    emit viewChanged();
 }
 
 void ViewerCanvas::mousePressEvent(QMouseEvent* e) {
@@ -213,6 +241,7 @@ void ViewerCanvas::mouseMoveEvent(QMouseEvent* e) {
         offset_ += e->pos() - lastMouse_;
         lastMouse_ = e->pos();
         update();
+        emit viewChanged();
         return;
     }
     readout_.clear();
@@ -288,6 +317,11 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     connect(exposure_, &QDoubleSpinBox::valueChanged, this, &Viewer::requestRender);
     connect(channel_, &QComboBox::currentIndexChanged, this, &Viewer::requestRender);
     connect(&doc_, &Document::frameChanged, this, &Viewer::showFrame);
+    roiTimer_ = new QTimer(this);
+    roiTimer_->setSingleShot(true);
+    roiTimer_->setInterval(30);
+    connect(canvas_, &ViewerCanvas::viewChanged, roiTimer_, qOverload<>(&QTimer::start));
+    connect(roiTimer_, &QTimer::timeout, this, &Viewer::viewChanged);
     connect(fit, &QToolButton::clicked, canvas_, &ViewerCanvas::fit);
     connect(&doc_, &Document::renderNeeded, this, &Viewer::requestRender);
 
@@ -325,9 +359,23 @@ void Viewer::requestRender() {
     render();
 }
 
+bool Viewer::covers(const ViewResult& r) const {
+    const auto visible = canvas_->visibleRegion();
+    const comp::Box needed = visible ? r.full.intersect(*visible) : r.full;
+    return needed.empty() || r.region.intersect(needed) == needed;
+}
+
+void Viewer::viewChanged() {
+    // Render again only if the picture on screen doesn't cover it (and no
+    // render is already on its way, which will).
+    const ViewResult& r = canvas_->result();
+    if (busy() || !doc_.viewed() || !r.error.isEmpty() || covers(r)) return;
+    render();
+}
+
 void Viewer::showFrame() {
     auto it = cache_.find(doc_.frame());
-    if (it == cache_.end() || !doc_.viewed()) {
+    if (it == cache_.end() || !doc_.viewed() || !covers(it->second.result)) {
         render();
         return;
     }
@@ -360,6 +408,7 @@ void Viewer::render() {
         return;
     }
     req.frame = doc_.frame();
+    req.visible = canvas_->visibleRegion();
     req.display = display_->currentText().toStdString();
     req.view = view_->currentText().toStdString();
     req.exposure = exposure_->value();
