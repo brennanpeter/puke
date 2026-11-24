@@ -80,9 +80,14 @@ MainWindow::MainWindow() {
 
     // --- Edit
     QMenu* edit = menuBar()->addMenu("&Edit");
-    edit->addAction("&Delete node", QKeySequence::Delete, this, [this] {
-        if (doc_->selected()) doc_->removeNode(*doc_->selected());
-    });
+    QAction* undo = doc_->undoStack().createUndoAction(this, "&Undo");
+    undo->setShortcut(QKeySequence::Undo);
+    QAction* redo = doc_->undoStack().createRedoAction(this, "&Redo");
+    redo->setShortcuts({QKeySequence::Redo, QKeySequence("Ctrl+Shift+Z")});
+    edit->addAction(undo);
+    edit->addAction(redo);
+    edit->addSeparator();
+    edit->addAction("&Delete nodes", QKeySequence::Delete, this, [this] { doc_->removeNodes(graph_->selectedNodes()); });
 
     // --- Nodes: built-ins, then OFX plugins in a submenu
     QMenu* nodes = menuBar()->addMenu("&Nodes");

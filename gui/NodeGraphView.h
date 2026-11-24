@@ -4,6 +4,7 @@
 
 #include <map>
 #include <optional>
+#include <vector>
 
 namespace comp {
 class Node;
@@ -32,6 +33,8 @@ public:
     // Opens the create-node search at the cursor (also bound to Tab).
     void showCreatePopup();
     void fitAll();
+    // The nodes selected in the graph (the document tracks only the main one).
+    std::vector<comp::Node*> selectedNodes() const;
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;

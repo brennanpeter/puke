@@ -114,6 +114,8 @@ public:
     Node& operator=(const Node&) = delete;
 
     const std::string& name() const { return name_; }
+    // Use Graph::rename(), which keeps names unique within a graph.
+    void setName(std::string name) { name_ = std::move(name); }
 
     // Unique for the life of the program, never reused, even after the node
     // is destroyed. Part of every cache key.
