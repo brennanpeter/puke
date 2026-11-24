@@ -17,6 +17,7 @@
 #include "Document.h"
 #include "NodeGraphView.h"
 #include "PropertiesPanel.h"
+#include "RenderDialog.h"
 #include "Timeline.h"
 #include "Viewer.h"
 #include "comp/nodes/Registry.h"
@@ -135,6 +136,11 @@ MainWindow::MainWindow() {
         });
     }
 
+    // --- Render
+    render_ = new RenderDialog(*doc_, this);
+    QMenu* renderMenu = menuBar()->addMenu("&Render");
+    renderMenu->addAction("&Render...", QKeySequence(Qt::Key_F7), this, &MainWindow::showRenderDialog);
+
     // --- View
     QMenu* view = menuBar()->addMenu("&View");
     view->addAction("View selected node (1)", this, [this] {
@@ -168,6 +174,22 @@ MainWindow::MainWindow() {
     updateTitle();
     resize(1400, 900);
     statusBar()->showMessage("Tab in the node graph creates a node; 1 views the selected node.", 8000);
+}
+
+MainWindow::~MainWindow() {
+    // The views talk to the document to the end (a scene being cleared tells
+    // it the selection changed), so they go first; Qt would otherwise delete
+    // the document first, as the oldest child.
+    delete render_;
+    delete takeCentralWidget();
+    delete findChild<QDockWidget*>("propertiesDock");
+}
+
+void MainWindow::showRenderDialog() {
+    if (!render_->rendering()) render_->reset();
+    render_->show();
+    render_->raise();
+    render_->activateWindow();
 }
 
 void MainWindow::updateTitle() {
@@ -217,8 +239,17 @@ bool MainWindow::maybeSave() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
-    if (maybeSave()) event->accept();
-    else event->ignore();
+    if (render_->rendering() &&
+        QMessageBox::question(this, "Quit", "A render is still running. Stop it and quit?") != QMessageBox::Yes) {
+        event->ignore();
+        return;
+    }
+    if (!maybeSave()) {
+        event->ignore();
+        return;
+    }
+    render_->close();  // stops the render, after the file being written
+    event->accept();
 }
 
 }  // namespace compgui

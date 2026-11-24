@@ -34,6 +34,7 @@ class NodeGraphView : public QGraphicsView {
     Q_OBJECT
 public:
     NodeGraphView(Document& doc, QWidget* parent = nullptr);
+    ~NodeGraphView() override;
 
     // Opens the create-node search at the cursor (also bound to Tab).
     void showCreatePopup();

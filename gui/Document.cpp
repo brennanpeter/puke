@@ -1,5 +1,6 @@
 #include "Document.h"
 
+#include <QSignalBlocker>
 #include <QUndoCommand>
 
 #include <algorithm>
@@ -212,7 +213,10 @@ Document::Document(QObject* parent) : QObject(parent), graph_(std::make_unique<c
 }
 
 Document::~Document() {
-    undo_.clear();  // commands hold nodes; let them go before the graph
+    // Commands hold nodes; let them go before the graph. Clearing can change
+    // the clean state, and whoever listens may already be gone: stay quiet.
+    const QSignalBlocker quiet(this);
+    undo_.clear();
 }
 
 void Document::setSelected(comp::Node* node) {

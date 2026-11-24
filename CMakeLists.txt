@@ -109,6 +109,8 @@ if(COMP_GUI)
             gui/MainWindow.cpp
             gui/NodeGraphView.cpp
             gui/PropertiesPanel.cpp
+            gui/RenderDialog.cpp
+            gui/RenderJob.cpp
             gui/Timeline.cpp
             gui/Viewer.cpp)
         target_link_libraries(comp_gui_lib PUBLIC comp_core Qt6::Widgets)

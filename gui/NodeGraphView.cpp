@@ -372,6 +372,14 @@ NodeGraphView::NodeGraphView(Document& doc, QWidget* parent) : QGraphicsView(par
     rebuild();
 }
 
+NodeGraphView::~NodeGraphView() {
+    // The scene, destroyed after this, deselects its items as it goes: don't
+    // pass that on to the document, or let it reach the items' map.
+    QObject::disconnect(&scene_, nullptr, this, nullptr);
+    syncing_ = true;
+    items_.clear();
+}
+
 void NodeGraphView::layoutUnplaced() {
     // Nodes without a position (e.g. from a script) get one by depth: inputs
     // above the nodes that use them.
