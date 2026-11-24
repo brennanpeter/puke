@@ -77,22 +77,37 @@ Key decisions:
   panel built from each node type's parameter descriptions (OFX included),
   viewer on its own render thread with the tile cache, OCIO display/view,
   exposure, channels, pan/zoom and a pixel readout; open/save projects.
+- [x] **GUI, second milestone**: undo/redo for every edit; rename, cut/copy/
+  paste/duplicate (the clipboard holds project text), Backdrop nodes;
+  project frame range and fps (saved in projects, used by `comp_render`);
+  a timeline with playback that never skips frames, backed by a cache of
+  the frames the viewer has shown; rendering Write nodes in the background
+  with progress, a log and cancel, while editing goes on; the viewer
+  renders only what's on screen.
 
 ## Next
 
 In planned order. Items further down are less settled.
 
-### 1. GUI, second milestone
-Undo/redo for every edit; a timeline with frame range and playback (with
-frames cached in the background); rendering Write nodes from the GUI with
-progress; node renaming, copy/paste and backdrops; viewer region of
-interest and proxy resolution for big plates; OFX overlays and custom
-parameter interacts.
+### 1. Generators and more nodes
+OFX generators (the frame range is now a project setting; they still need
+a project format), plus the built-in nodes a compositor can't do without:
+Blur, Crop, Reformat, Shuffle (channels), Premult/Unpremult, Constant,
+Roto.
 
-### 2. Generators and more nodes
-OFX generators (needs a format/frame-range setting per project), plus the
-built-in nodes a compositor can't do without: Blur, Crop, Reformat,
-Shuffle (channels), Premult/Unpremult, Constant, Roto.
+### 2. GUI, third milestone
+Left over from the second, each needing groundwork first:
+- **Proxy resolution**: rendering at a fraction of full size needs a
+  render scale passed through the engine to every node (Transform
+  offsets, filter sizes, OFX's render scale), or results won't match full
+  resolution. Viewer region of interest covers the "big plates" problem
+  meanwhile.
+- **OFX overlays and custom parameter interacts**: OFX draws these with
+  OpenGL, so the viewer needs an OpenGL canvas and the host needs the
+  interact suite (pen and key events, redraw requests).
+- Smaller: cancelling a render mid-frame (now it stops between files),
+  and caching frames ahead of playback in the background (now playback
+  caches as it goes).
 
 ### Later
 - Animation curves on parameters, sub-frame sampling for motion blur and
