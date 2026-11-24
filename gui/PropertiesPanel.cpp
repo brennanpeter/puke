@@ -8,6 +8,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSpinBox>
@@ -109,10 +110,34 @@ void PropertiesPanel::rebuild() {
         return;
     }
 
-    auto* title = new QLabel(QString("<b>%1</b>  <span style='color:#999'>%2</span>")
-                                 .arg(QString::fromStdString(node_->name()), QString::fromStdString(node_->typeName())));
-    title->setObjectName("propertiesTitle");
-    outer->addWidget(title);
+    // The node's name, editable (Enter renames), and its type.
+    auto* titleRow = new QHBoxLayout;
+    auto* nameEdit = new QLineEdit(QString::fromStdString(node_->name()));
+    nameEdit->setObjectName("nodeName");
+    QFont bold = nameEdit->font();
+    bold.setBold(true);
+    nameEdit->setFont(bold);
+    auto* typeLabel = new QLabel(QString::fromStdString(node_->typeName()));
+    typeLabel->setStyleSheet("color: #999;");
+    titleRow->addWidget(nameEdit, 1);
+    titleRow->addWidget(typeLabel);
+    outer->addLayout(titleRow);
+    connect(nameEdit, &QLineEdit::editingFinished, this, [this, nameEdit] {
+        comp::Node* node = node_;
+        const std::string name = nameEdit->text().trimmed().toStdString();
+        if (!node || name == node->name()) return;
+        // Renaming rebuilds this panel, deleting the field whose signal
+        // we're in: do it once the signal is over.
+        QMetaObject::invokeMethod(this, [this, node, name, nameEdit] {
+            if (node_ != node) return;
+            try {
+                doc_.renameNode(*node, name);
+            } catch (const comp::Error& e) {
+                nameEdit->setText(QString::fromStdString(node->name()));
+                QMessageBox::warning(this, "Rename", QString::fromStdString(e.what()));
+            }
+        }, Qt::QueuedConnection);
+    });
 
     auto* form = new QFormLayout;
     form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);

@@ -1,6 +1,8 @@
 #include "NodeGraphView.h"
 
 #include <QApplication>
+#include <QClipboard>
+#include <QInputDialog>
 #include <QGraphicsItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QKeyEvent>
@@ -13,10 +15,12 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 
 #include "Document.h"
 #include "comp/nodes/Registry.h"
+#include "comp/project/Project.h"
 
 namespace compgui {
 
@@ -43,19 +47,37 @@ QString displayType(const std::string& type) {
 
 // ================================================================ items
 
+// A node, or a backdrop (a box drawn behind nodes; its position is its
+// top-left corner, and moving it moves the nodes on it).
 class NodeItem : public QGraphicsItem {
 public:
-    NodeItem(comp::Node& node, Document& doc) : node_(node), doc_(doc) {
+    NodeItem(comp::Node& node, Document& doc)
+        : node_(node), doc_(doc), backdrop_(std::string(node.typeName()) == "Backdrop") {
         setFlags(ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges);
-        setZValue(1);
+        setZValue(backdrop_ ? -1 : 1);
         const auto& p = node.position();
         setPos(p ? QPointF((*p)[0], (*p)[1]) : QPointF());
         setToolTip(QString::fromStdString(node.typeName()));
     }
 
     comp::Node& node() const { return node_; }
+    bool isBackdrop() const { return backdrop_; }
 
-    QRectF boundingRect() const override { return QRectF(-kNodeW / 2 - 6, -20, kNodeW + 12, kNodeH + 32); }
+    QSizeF backdropSize() const {
+        if (resizing_) return *resizing_;
+        const comp::Vec2 s = node_.vec2Param("size", comp::Vec2{400, 250});
+        return {std::max(40.0, s[0]), std::max(40.0, s[1])};
+    }
+    // The backdrop's size or label changed.
+    void paramsChanged() {
+        prepareGeometryChange();
+        update();
+    }
+
+    QRectF boundingRect() const override {
+        if (backdrop_) return QRectF(QPointF(), backdropSize()).adjusted(-2, -2, 2, 2);
+        return QRectF(-kNodeW / 2 - 6, -20, kNodeW + 12, kNodeH + 32);
+    }
 
     // Port positions, in item coordinates.
     QPointF inputPos(int i) const {
@@ -67,6 +89,7 @@ public:
     // Which port, if any, is at a scene position: {true, 0} for the output,
     // {false, i} for input i.
     std::optional<std::pair<bool, int>> portAt(QPointF scenePos) const {
+        if (backdrop_) return std::nullopt;
         const QPointF p = mapFromScene(scenePos);
         auto near = [&](QPointF q) { return QLineF(p, q).length() <= kPortR + 5; };
         if (near(outputPos())) return std::make_pair(true, 0);
@@ -77,6 +100,10 @@ public:
 
     void paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidget*) override {
         p->setRenderHint(QPainter::Antialiasing);
+        if (backdrop_) {
+            paintBackdrop(p);
+            return;
+        }
         const QRectF body(-kNodeW / 2, 0, kNodeW, kNodeH);
         const bool viewed = doc_.viewed() == &node_;
         p->setPen(isSelected() ? QPen(QColor(255, 200, 80), 2) : QPen(QColor(20, 20, 20), 1));
@@ -122,13 +149,92 @@ public:
 
 protected:
     QVariant itemChange(GraphicsItemChange change, const QVariant& value) override {
-        if (change == ItemPositionHasChanged && onMoved) onMoved();
+        if (change == ItemPositionHasChanged) {
+            // A backdrop carries the nodes on it (those not already moving
+            // because they're selected too).
+            const QPointF delta = pos() - lastPos_;
+            lastPos_ = pos();
+            for (NodeItem* n : carried_) n->moveBy(delta.x(), delta.y());
+            if (onMoved) onMoved();
+        }
         return QGraphicsItem::itemChange(change, value);
     }
 
+    void mousePressEvent(QGraphicsSceneMouseEvent* e) override {
+        carried_.clear();
+        lastPos_ = pos();
+        if (backdrop_ && e->button() == Qt::LeftButton) {
+            const QSizeF s = backdropSize();
+            if (QRectF(s.width() - kHandle, s.height() - kHandle, kHandle, kHandle).contains(e->pos())) {
+                resizing_ = s;  // the corner handle: resize
+                resizeFrom_ = e->pos();
+                e->accept();
+                return;
+            }
+            const QRectF area = sceneBoundingRect();
+            for (QGraphicsItem* it : scene()->items(area, Qt::ContainsItemBoundingRect))
+                if (auto* n = dynamic_cast<NodeItem*>(it); n && n != this && !n->isBackdrop() && !n->isSelected())
+                    carried_.push_back(n);
+        }
+        QGraphicsItem::mousePressEvent(e);
+    }
+    void mouseMoveEvent(QGraphicsSceneMouseEvent* e) override {
+        if (resizing_) {
+            const QPointF d = e->pos() - resizeFrom_;
+            resizeFrom_ = e->pos();
+            prepareGeometryChange();
+            resizing_ = QSizeF(std::max(40.0, resizing_->width() + d.x()), std::max(40.0, resizing_->height() + d.y()));
+            return;
+        }
+        QGraphicsItem::mouseMoveEvent(e);
+    }
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent* e) override {
+        if (resizing_) {
+            const QSizeF s = *resizing_;
+            resizing_.reset();
+            prepareGeometryChange();
+            doc_.setParam(node_, "size", comp::Vec2{std::round(s.width()), std::round(s.height())});
+            return;
+        }
+        QGraphicsItem::mouseReleaseEvent(e);
+        carried_.clear();
+    }
+
 private:
+    static constexpr double kHandle = 14;
+
+    void paintBackdrop(QPainter* p) {
+        const QRectF r(QPointF(), backdropSize());
+        const comp::Color c = node_.colorParam("color", 0.3);
+        auto ch = [](double v) { return std::clamp(static_cast<int>(v * 255 + 0.5), 0, 255); };
+        const QColor fill(ch(c[0]), ch(c[1]), ch(c[2]));
+        p->setPen(isSelected() ? QPen(QColor(255, 200, 80), 2) : QPen(fill.darker(160), 1));
+        p->setBrush(fill);
+        p->drawRect(r);
+        p->setPen(Qt::NoPen);
+        p->setBrush(fill.lighter(125));
+        p->drawRect(QRectF(r.left(), r.top(), r.width(), 24));
+        std::string label = node_.param<std::string>("label", "");
+        if (label.empty()) label = node_.name();
+        QFont f = p->font();
+        f.setPointSizeF(11);
+        f.setBold(true);
+        p->setFont(f);
+        p->setPen(Qt::white);
+        p->drawText(QRectF(r.left() + 8, r.top(), r.width() - 16, 24), Qt::AlignVCenter | Qt::AlignLeft,
+                    QString::fromStdString(label));
+        p->setPen(QPen(fill.lighter(170), 1));  // the resize handle
+        for (int i = 1; i <= 3; ++i)
+            p->drawLine(QPointF(r.right() - 4 * i, r.bottom() - 2), QPointF(r.right() - 2, r.bottom() - 4 * i));
+    }
+
     comp::Node& node_;
     Document& doc_;
+    bool backdrop_;
+    std::vector<NodeItem*> carried_;
+    QPointF lastPos_;
+    std::optional<QSizeF> resizing_;
+    QPointF resizeFrom_;
 };
 
 class EdgeItem : public QGraphicsPathItem {
@@ -251,6 +357,10 @@ NodeGraphView::NodeGraphView(Document& doc, QWidget* parent) : QGraphicsView(par
         const QPointF p((*n->position())[0], (*n->position())[1]);
         if (it->second->pos() != p) it->second->setPos(p);
     });
+    connect(&doc_, &Document::paramChanged, this, [this](comp::Node* n) {
+        auto it = items_.find(n);
+        if (it != items_.end() && it->second->isBackdrop()) it->second->paramsChanged();
+    });
     connect(&scene_, &QGraphicsScene::selectionChanged, this, [this] {
         if (syncing_) return;
         const auto sel = scene_.selectedItems();
@@ -313,6 +423,13 @@ void NodeGraphView::updateEdges() {
 }
 
 void NodeGraphView::syncSelectionFromDoc() {
+    // The document only knows the main selected node: keep a selection of
+    // several that already includes it.
+    auto main = items_.find(doc_.selected());
+    if (main != items_.end() && main->second->isSelected()) {
+        scene_.update();
+        return;
+    }
     syncing_ = true;
     for (auto& [node, item] : items_) item->setSelected(node == doc_.selected());
     syncing_ = false;
@@ -328,6 +445,10 @@ void NodeGraphView::fitAll() {
 }
 
 void NodeGraphView::createAt(const std::string& type, QPointF scenePos) {
+    if (type == "Backdrop") {
+        createBackdrop(scenePos);
+        return;
+    }
     try {
         comp::Node* upstream = doc_.selected();
         QPointF pos = scenePos;
@@ -335,6 +456,101 @@ void NodeGraphView::createAt(const std::string& type, QPointF scenePos) {
         doc_.createNode(type, pos, upstream);
     } catch (const comp::Error& e) {
         QMessageBox::warning(this, "Create node", QString::fromStdString(e.what()));
+    }
+}
+
+void NodeGraphView::createBackdrop(QPointF scenePos) {
+    // Around the selected nodes, or an empty one at the cursor.
+    QRectF around;
+    for (comp::Node* n : selectedNodes()) around |= items_.at(n)->sceneBoundingRect();
+    doc_.beginEdit("Create Backdrop");
+    try {
+        if (around.isEmpty()) {
+            doc_.createNode("Backdrop", scenePos);
+        } else {
+            around.adjust(-30, -50, 30, 30);  // room for the title
+            comp::Node& b = doc_.createNode("Backdrop", around.topLeft());
+            doc_.setParam(b, "size", comp::Vec2{std::round(around.width()), std::round(around.height())});
+        }
+    } catch (const comp::Error& e) {
+        QMessageBox::warning(this, "Create node", QString::fromStdString(e.what()));
+    }
+    doc_.endEdit();
+}
+
+// --- clipboard
+
+void NodeGraphView::copySelection() {
+    const auto nodes = selectedNodes();
+    if (nodes.empty()) return;
+    QGuiApplication::clipboard()->setText(QString::fromStdString(doc_.copyNodes(nodes)));
+}
+
+void NodeGraphView::cutSelection() {
+    const auto nodes = selectedNodes();
+    if (nodes.empty()) return;
+    copySelection();
+    doc_.removeNodes(nodes);
+}
+
+void NodeGraphView::paste() {
+    const std::string text = QGuiApplication::clipboard()->text().toStdString();
+    if (text.empty()) return;
+    // Under the cursor if it's over the graph, otherwise just off the
+    // originals so the copies don't hide them.
+    QPointF offset(40, 40);
+    const QPoint cursor = mapFromGlobal(QCursor::pos());
+    std::optional<QPointF> corner;  // the pasted nodes' top-left
+    try {
+        const comp::Graph nodes = comp::projectFromJson(text, "clipboard");
+        for (const auto& n : nodes.nodes())
+            if (const auto& p = n->position()) {
+                const QPointF q((*p)[0], (*p)[1]);
+                corner = corner ? QPointF(std::min(corner->x(), q.x()), std::min(corner->y(), q.y())) : q;
+            }
+    } catch (const comp::Error&) {
+        return;  // not nodes: nothing to paste
+    }
+    if (corner && rect().contains(cursor)) offset = mapToScene(cursor) - *corner;
+    pasteText(text, offset);
+}
+
+void NodeGraphView::duplicateSelection() {
+    const auto nodes = selectedNodes();
+    if (!nodes.empty()) pasteText(doc_.copyNodes(nodes), QPointF(40, 40));
+}
+
+void NodeGraphView::pasteText(const std::string& text, QPointF offset) {
+    std::vector<comp::Node*> pasted;
+    try {
+        pasted = doc_.pasteNodes(text, offset);
+    } catch (const comp::Error& e) {
+        QMessageBox::warning(this, "Paste", QString::fromStdString(e.what()));
+        return;
+    }
+    selectNodes(pasted);  // so it can be moved straight away
+}
+
+void NodeGraphView::selectNodes(const std::vector<comp::Node*>& nodes) {
+    syncing_ = true;
+    scene_.clearSelection();
+    for (comp::Node* n : nodes) items_.at(n)->setSelected(true);
+    syncing_ = false;
+    doc_.setSelected(nodes.empty() ? nullptr : nodes.back());  // keeps the others (see syncSelectionFromDoc)
+    scene_.update();
+}
+
+void NodeGraphView::renameSelected() {
+    comp::Node* node = doc_.selected();
+    if (!node) return;
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, "Rename", "Name:", QLineEdit::Normal,
+                                               QString::fromStdString(node->name()), &ok);
+    if (!ok) return;
+    try {
+        doc_.renameNode(*node, name.trimmed().toStdString());
+    } catch (const comp::Error& e) {
+        QMessageBox::warning(this, "Rename", QString::fromStdString(e.what()));
     }
 }
 
@@ -360,6 +576,9 @@ void NodeGraphView::keyPressEvent(QKeyEvent* event) {
             return;
         case Qt::Key_F:
             fitAll();
+            return;
+        case Qt::Key_F2:
+            renameSelected();
             return;
         default:
             QGraphicsView::keyPressEvent(event);

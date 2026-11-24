@@ -490,9 +490,20 @@ static void testTakeInsertRename() {
     CHECK_THROWS(other.indexOf(b), "does not belong to this graph");
 }
 
+static void testBackdrop() {
+    // Only for the editor: no inputs, an empty output, described parameters.
+    Graph g;
+    Node& b = g.add(createNode("Backdrop", "Backdrop1"));
+    CHECK(b.maxInputs() == 0 && b.paramSpecs().size() == 3);
+    Engine e;
+    const ImageInfo info = e.info(b, RenderContext{});
+    CHECK(info.dataWindow.area() == 0 && info.channels.empty());
+    CHECK(e.render(b, RenderContext{}, Box{0, 0, 4, 4}).channels().empty());
+}
+
 static void testRegistry() {
     // Built-in types first, then any OFX plugins installed on this machine.
-    const std::vector<std::string> builtin{"ColorSpace", "Grade", "Merge", "Read", "Transform", "Write"};
+    const std::vector<std::string> builtin{"Backdrop", "ColorSpace", "Grade", "Merge", "Read", "Transform", "Write"};
     const auto all = nodeTypes();
     CHECK(all.size() >= builtin.size() && std::equal(builtin.begin(), builtin.end(), all.begin()));
     for (std::size_t i = builtin.size(); i < all.size(); ++i) CHECK(all[i].rfind("ofx:", 0) == 0);
@@ -503,7 +514,7 @@ static void testRegistry() {
         CHECK(n.typeName() == t);
         CHECK(g.find(t + "1") == &n);
     }
-    CHECK_THROWS(createNode("Blur", "Blur1"), "unknown node type 'Blur' (built-in types: ColorSpace, Grade, Merge");
+    CHECK_THROWS(createNode("Blur", "Blur1"), "unknown node type 'Blur' (built-in types: Backdrop, ColorSpace, Grade, Merge");
     CHECK_THROWS(g.add(createNode("Grade", "Grade1")), "a node named 'Grade1' already exists");
     CHECK_THROWS(g.add(nullptr), "cannot add a null node");
     CHECK(g.nodes().size() == types.size());
@@ -512,6 +523,7 @@ static void testRegistry() {
 int main() {
     try {
         testRegistry();
+        testBackdrop();
         testTakeInsertRename();
         testParamSpecs();
         testGrade();

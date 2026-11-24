@@ -58,8 +58,8 @@ class TempDirTest(unittest.TestCase):
 class GraphTests(unittest.TestCase):
     def test_node_types(self):
         types = comp.node_types()
-        self.assertEqual(types[:6], ["ColorSpace", "Grade", "Merge", "Read", "Transform", "Write"])
-        self.assertTrue(all(t.startswith("ofx:") for t in types[6:]))
+        self.assertEqual(types[:7], ["Backdrop", "ColorSpace", "Grade", "Merge", "Read", "Transform", "Write"])
+        self.assertTrue(all(t.startswith("ofx:") for t in types[7:]))
 
     def test_create_names_and_params(self):
         g = comp.Graph()

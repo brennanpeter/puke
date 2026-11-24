@@ -1,5 +1,6 @@
 #include "comp/project/Project.h"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <limits>
@@ -110,15 +111,25 @@ ParamValue paramFromJson(const Where& where, const std::string& key, const Json&
 
 }  // namespace
 
-std::string projectToJson(const Graph& graph) {
+namespace {
+
+// The "nodes" list for the nodes `include` accepts, in graph order. Inputs
+// fed by nodes it doesn't accept are written as unconnected.
+template <typename Include>
+Json nodesJson(const Graph& graph, Include include) {
     Json nodes = Json::array();
     for (const auto& node : graph.nodes()) {
+        if (!include(node.get())) continue;
+        auto source = [&](int i) -> const Node* {
+            const Node* in = node->input(i);
+            return in && include(in) ? in : nullptr;
+        };
         Json inputs = Json::array();
         int last = -1;  // index of the last connected input, to drop trailing nulls
         for (int i = 0; i < node->maxInputs(); ++i)
-            if (node->input(i)) last = i;
+            if (source(i)) last = i;
         for (int i = 0; i <= last; ++i)
-            inputs.push_back(node->input(i) ? Json(node->input(i)->name()) : Json(nullptr));
+            inputs.push_back(source(i) ? Json(source(i)->name()) : Json(nullptr));
 
         Json params = Json::object();
         for (const auto& [key, value] : node->params())  // std::map: already sorted
@@ -132,7 +143,20 @@ std::string projectToJson(const Graph& graph) {
             entry["position"] = Json::array({std::round((*pos)[0]), std::round((*pos)[1])});
         nodes.push_back(std::move(entry));
     }
+    return nodes;
+}
+
+}  // namespace
+
+std::string projectToJson(const Graph& graph) {
+    Json nodes = nodesJson(graph, [](const Node*) { return true; });
     const Json doc{{"format", "comp"}, {"version", kProjectFormatVersion}, {"nodes", std::move(nodes)}};
+    return doc.dump(2) + "\n";
+}
+
+std::string nodesToJson(const Graph& graph, const std::vector<const Node*>& nodes) {
+    auto include = [&](const Node* n) { return std::find(nodes.begin(), nodes.end(), n) != nodes.end(); };
+    const Json doc{{"format", "comp"}, {"version", kProjectFormatVersion}, {"nodes", nodesJson(graph, include)}};
     return doc.dump(2) + "\n";
 }
 

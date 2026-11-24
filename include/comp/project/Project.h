@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include "comp/graph/Graph.h"
 
@@ -49,6 +50,10 @@ namespace comp {
 inline constexpr int kProjectFormatVersion = 1;
 
 std::string projectToJson(const Graph& graph);
+
+// Just some of a graph's nodes, as a project (for copy and paste): the same
+// format, with connections to nodes outside the set left unconnected.
+std::string nodesToJson(const Graph& graph, const std::vector<const Node*>& nodes);
 
 // `source` names the text in error messages (usually the file path).
 Graph projectFromJson(const std::string& json, const std::string& source = "project");

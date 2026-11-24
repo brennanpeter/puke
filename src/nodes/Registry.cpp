@@ -3,6 +3,7 @@
 #include <functional>
 #include <map>
 
+#include "comp/nodes/BackdropNode.h"
 #include "comp/nodes/ColorSpaceNode.h"
 #include "comp/nodes/GradeNode.h"
 #include "comp/nodes/MergeNode.h"
@@ -24,6 +25,7 @@ Factory make() {
 // std::map, so nodeTypes() comes out sorted.
 const std::map<std::string, Factory>& registry() {
     static const std::map<std::string, Factory> types{
+        {"Backdrop", make<BackdropNode>()},
         {"ColorSpace", make<ColorSpaceNode>()},
         {"Grade", make<GradeNode>()},
         {"Merge", make<MergeNode>()},
