@@ -460,6 +460,36 @@ static void testParamSpecs() {
     }
 }
 
+static void testTakeInsertRename() {
+    Graph g;
+    auto& a = g.add(createNode("Grade", "A"));
+    auto& b = g.add(createNode("Grade", "B"));
+    auto& c = g.add(createNode("Grade", "C"));
+    g.connect(a, b, 0);
+    g.connect(b, c, 0);
+
+    // take() hands the same node back, disconnected both ways...
+    std::shared_ptr<Node> taken = g.take(b);
+    CHECK(taken.get() == &b && g.nodes().size() == 2 && !g.find("B"));
+    CHECK(c.input(0) == nullptr && b.input(0) == nullptr);
+    // ...and insert() puts it back where it was, ready to reconnect.
+    CHECK(&g.insert(taken, 1) == &b && g.indexOf(b) == 1 && g.nodes()[1].get() == &b);
+    g.connect(a, b, 0);
+    g.connect(b, c, 0);
+    CHECK(c.input(0) == &b);
+    CHECK_THROWS(g.insert(std::shared_ptr<Node>(createNode("Grade", "A")), 9), "a node named 'A' already exists");
+    CHECK(g.indexOf(b) == 1);
+
+    g.rename(b, "Hero");
+    CHECK(b.name() == "Hero" && g.find("Hero") == &b && !g.find("B"));
+    g.rename(b, "Hero");  // to its own name: fine
+    CHECK_THROWS(g.rename(b, "A"), "a node named 'A' already exists");
+    CHECK_THROWS(g.rename(b, ""), "node name cannot be empty");
+    Graph other;
+    CHECK_THROWS(other.rename(b, "X"), "does not belong to this graph");
+    CHECK_THROWS(other.indexOf(b), "does not belong to this graph");
+}
+
 static void testRegistry() {
     // Built-in types first, then any OFX plugins installed on this machine.
     const std::vector<std::string> builtin{"ColorSpace", "Grade", "Merge", "Read", "Transform", "Write"};
@@ -482,6 +512,7 @@ static void testRegistry() {
 int main() {
     try {
         testRegistry();
+        testTakeInsertRename();
         testParamSpecs();
         testGrade();
         testMergeOperations();

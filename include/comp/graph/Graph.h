@@ -32,6 +32,19 @@ public:
     // Deletes the node, disconnecting anything that used it as an input.
     void remove(Node& node);
 
+    // Like remove(), but hands the node back instead of deleting it, so it
+    // can be put back later (undo): see insert(). Its connections are
+    // cleared both ways; the caller records them if it needs them.
+    std::shared_ptr<Node> take(Node& node);
+    // Puts a node (e.g. one from take()) at `index` in the node order, or
+    // at the end if `index` is past it. Throws if its name is taken.
+    Node& insert(std::shared_ptr<Node> node, std::size_t index);
+    // Where the node is in nodes(); throws if it isn't in this graph.
+    std::size_t indexOf(const Node& node) const;
+
+    // Renames a node. Throws if the name is empty or used by another node.
+    void rename(Node& node, const std::string& name);
+
     // Nodes that use `node` as an input.
     std::vector<Node*> consumers(const Node& node) const;
 

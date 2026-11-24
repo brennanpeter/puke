@@ -125,11 +125,6 @@ protected:
         if (change == ItemPositionHasChanged && onMoved) onMoved();
         return QGraphicsItem::itemChange(change, value);
     }
-    void mouseReleaseEvent(QGraphicsSceneMouseEvent* e) override {
-        QGraphicsItem::mouseReleaseEvent(e);
-        const auto& p = node_.position();
-        if (!p || QPointF((*p)[0], (*p)[1]) != pos()) doc_.moveNode(node_, pos());
-    }
 
 private:
     comp::Node& node_;
@@ -250,6 +245,12 @@ NodeGraphView::NodeGraphView(Document& doc, QWidget* parent) : QGraphicsView(par
     connect(&doc_, &Document::structureChanged, this, &NodeGraphView::rebuild);
     connect(&doc_, &Document::selectionChanged, this, &NodeGraphView::syncSelectionFromDoc);
     connect(&doc_, &Document::viewedChanged, this, [this] { scene_.update(); });
+    connect(&doc_, &Document::nodeMoved, this, [this](comp::Node* n) {  // e.g. undo
+        auto it = items_.find(n);
+        if (it == items_.end() || !n->position()) return;
+        const QPointF p((*n->position())[0], (*n->position())[1]);
+        if (it->second->pos() != p) it->second->setPos(p);
+    });
     connect(&scene_, &QGraphicsScene::selectionChanged, this, [this] {
         if (syncing_) return;
         const auto sel = scene_.selectedItems();
@@ -351,13 +352,9 @@ void NodeGraphView::keyPressEvent(QKeyEvent* event) {
             showCreatePopup();
             return;
         case Qt::Key_Delete:
-        case Qt::Key_Backspace: {
-            std::vector<comp::Node*> doomed;
-            for (auto* it : scene_.selectedItems())
-                if (auto* n = dynamic_cast<NodeItem*>(it)) doomed.push_back(&n->node());
-            for (auto* n : doomed) doc_.removeNode(*n);
+        case Qt::Key_Backspace:
+            doc_.removeNodes(selectedNodes());  // one undo step for all of them
             return;
-        }
         case Qt::Key_1:
             if (doc_.selected()) doc_.setViewed(doc_.selected());
             return;
@@ -438,8 +435,20 @@ void NodeGraphView::mouseReleaseEvent(QMouseEvent* event) {
         }
         try {
             if (target && (target->first != d.detachedFrom || target->second != d.detachedInput)) {
-                if (d.detachedFrom) doc_.disconnect(*d.detachedFrom, d.detachedInput);
-                doc_.connectNodes(*d.source, *target->first, target->second);
+                if (d.detachedFrom) {  // moving a wire: one undo step
+                    doc_.beginEdit("Reconnect");
+                    try {
+                        doc_.disconnect(*d.detachedFrom, d.detachedInput);
+                        doc_.connectNodes(*d.source, *target->first, target->second);
+                    } catch (...) {
+                        doc_.endEdit();
+                        doc_.undoStack().undo();  // put the wire back
+                        throw;
+                    }
+                    doc_.endEdit();
+                } else {
+                    doc_.connectNodes(*d.source, *target->first, target->second);
+                }
             } else if (!target && d.detachedFrom) {
                 doc_.disconnect(*d.detachedFrom, d.detachedInput);  // dropped on nothing: unplug
             }
@@ -450,6 +459,20 @@ void NodeGraphView::mouseReleaseEvent(QMouseEvent* event) {
         return;
     }
     QGraphicsView::mouseReleaseEvent(event);
+    // Nodes dragged: record where they ended up, as one undo step.
+    std::vector<std::pair<comp::Node*, QPointF>> moves;
+    for (auto& [node, item] : items_) {
+        const auto& p = item->node().position();
+        if (!p || QPointF((*p)[0], (*p)[1]) != item->pos()) moves.push_back({&item->node(), item->pos()});
+    }
+    if (!moves.empty()) doc_.moveNodes(moves);
+}
+
+std::vector<comp::Node*> NodeGraphView::selectedNodes() const {
+    std::vector<comp::Node*> out;
+    for (auto* it : scene_.selectedItems())
+        if (auto* n = dynamic_cast<NodeItem*>(it)) out.push_back(&n->node());
+    return out;
 }
 
 void NodeGraphView::mouseDoubleClickEvent(QMouseEvent* event) {

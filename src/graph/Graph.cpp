@@ -72,7 +72,9 @@ std::vector<Node*> Graph::consumers(const Node& node) const {
     return out;
 }
 
-void Graph::remove(Node& node) {
+void Graph::remove(Node& node) { take(node); }
+
+std::shared_ptr<Node> Graph::take(Node& node) {
     requireOwned(node);
     for (const auto& n : nodes_)
         for (int i = 0; i < n->maxInputs(); ++i)
@@ -81,7 +83,31 @@ void Graph::remove(Node& node) {
     // Snapshot) has its own record of them, and nothing else should follow
     // them from a node that's no longer in the graph.
     for (int i = 0; i < node.maxInputs(); ++i) node.setInput(i, nullptr);
-    std::erase_if(nodes_, [&](const auto& n) { return n.get() == &node; });
+    auto it = std::find_if(nodes_.begin(), nodes_.end(), [&](const auto& n) { return n.get() == &node; });
+    std::shared_ptr<Node> taken = std::move(*it);
+    nodes_.erase(it);
+    return taken;
+}
+
+Node& Graph::insert(std::shared_ptr<Node> node, std::size_t index) {
+    if (!node) throw Error("cannot add a null node");
+    checkNewName(node->name());
+    Node& ref = *node;
+    nodes_.insert(nodes_.begin() + static_cast<std::ptrdiff_t>(std::min(index, nodes_.size())), std::move(node));
+    return ref;
+}
+
+std::size_t Graph::indexOf(const Node& node) const {
+    for (std::size_t i = 0; i < nodes_.size(); ++i)
+        if (nodes_[i].get() == &node) return i;
+    throw Error(node.name() + " does not belong to this graph");
+}
+
+void Graph::rename(Node& node, const std::string& name) {
+    requireOwned(node);
+    if (name == node.name()) return;
+    checkNewName(name);
+    node.setName(name);
 }
 
 }  // namespace comp

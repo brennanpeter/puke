@@ -14,6 +14,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QToolButton>
+#include <QUndoStack>
 
 #include <cmath>
 #include <cstdio>
@@ -27,6 +28,7 @@
 #include "TestUtil.h"
 #include "Viewer.h"
 #include "comp/engine/Engine.h"
+#include "comp/project/Project.h"
 
 using namespace compgui;
 namespace fs = std::filesystem;
@@ -197,6 +199,51 @@ int main(int argc, char** argv) {
         CHECK((doc.graph().find("Grade1")->position() == comp::Vec2{0, 90}));
         CHECK(doc.viewed() == doc.graph().find("Gain1"));
         CHECK(waitForRender(viewer));
+
+        // --- Undo and redo: every kind of edit, back to the saved project
+        // exactly, then forward again exactly.
+        {
+            QUndoStack& undo = doc.undoStack();
+            CHECK(!doc.dirty() && undo.count() == 0);  // loading starts a fresh history
+            const std::string saved = comp::projectToJson(doc.graph());
+            comp::Node& g1 = *doc.graph().find("Grade1");
+            comp::Node& m1 = *doc.graph().find("Merge1");
+            comp::Node& r1 = *doc.graph().find("Read1");
+
+            for (int i = 0; i < 20; ++i) doc.setParam(g1, "mix", 0.05 * i);  // a slider drag...
+            CHECK(undo.count() == 1);                                         // ...is one step
+            doc.clearParam(g1, "multiply");
+            doc.renameNode(g1, "Hero");
+            CHECK_THROWS(doc.renameNode(g1, "Read1"), "a node named 'Read1' already exists");
+            doc.moveNodes({{&g1, QPointF(300, 90)}, {&r1, QPointF(300, 0)}});
+            doc.disconnect(m1, 1);
+            CHECK_THROWS(doc.connectNodes(*doc.graph().find("Gain1"), r1, 0), "out of range");  // Read has no inputs
+            comp::Node& extra = doc.createNode("ColorSpace", {500, 0}, &m1);
+            doc.setParam(extra, "out", std::string("ACEScct"));
+            doc.setViewed(&g1);
+            doc.removeNodes({&g1, doc.graph().find("Transform1")});  // viewed, mid-chain
+            CHECK(doc.graph().nodes().size() == 4 && doc.viewed() == nullptr);
+            CHECK(doc.dirty());
+            const std::string edited = comp::projectToJson(doc.graph());
+
+            const int steps = undo.count();
+            CHECK(steps == 8);
+            while (undo.canUndo()) undo.undo();
+            CHECK(comp::projectToJson(doc.graph()) == saved);
+            CHECK(!doc.dirty() && doc.viewed() == doc.graph().find("Grade1"));  // the deleted, viewed node is back
+            CHECK(doc.graph().find("Transform1")->input(0) == doc.graph().find("Grade1"));
+            CHECK(waitForRender(viewer));
+            while (undo.canRedo()) undo.redo();
+            CHECK(comp::projectToJson(doc.graph()) == edited);
+            while (undo.canUndo()) undo.undo();
+            CHECK(comp::projectToJson(doc.graph()) == saved);
+
+            // A new edit after undoing drops the redo history, as usual.
+            doc.setParam(*doc.graph().find("Grade1"), "mix", 0.5);
+            CHECK(!undo.canRedo());
+            undo.undo();
+            CHECK(!doc.dirty());
+        }
 
         if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {
             doc.setParam(*doc.graph().find("Grade1"), "multiply", comp::Color{1.4, 1.1, 0.8, 1});
