@@ -57,7 +57,9 @@ class TempDirTest(unittest.TestCase):
 
 class GraphTests(unittest.TestCase):
     def test_node_types(self):
-        self.assertEqual(comp.node_types(), ["Grade", "Merge", "Read", "Transform", "Write"])
+        types = comp.node_types()
+        self.assertEqual(types[:6], ["ColorSpace", "Grade", "Merge", "Read", "Transform", "Write"])
+        self.assertTrue(all(t.startswith("ofx:") for t in types[6:]))
 
     def test_create_names_and_params(self):
         g = comp.Graph()
@@ -111,6 +113,21 @@ class GraphTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             n.set(rotate=10.0, scale=object())
         self.assertEqual(n["rotate"], 45.0)
+
+    def test_specs_and_positions(self):
+        g = comp.Graph()
+        grade = g.create("Grade")
+        specs = {s["name"]: s for s in grade.param_specs}
+        self.assertEqual(specs["gain"]["kind"], "color")
+        self.assertEqual(specs["gain"]["default"], (1.0, 1.0, 1.0, 1.0))
+        self.assertEqual(specs["channels"]["options"], ["rgb", "rgba"])
+        grade["mix"] = 0.5
+        grade.clear("mix")
+        self.assertNotIn("mix", grade)
+        self.assertIsNone(grade.position)
+        grade.position = (10, 20)
+        self.assertEqual(grade.position, (10.0, 20.0))
+        self.assertIn('"position"', g.to_json())
 
     @unittest.skipUnless(np, "needs numpy")
     def test_numpy_params(self):
@@ -184,7 +201,7 @@ class BoxTests(unittest.TestCase):
 class RenderTests(TempDirTest):
     def test_info_and_render(self):
         g = comp.Graph()
-        read = g.create("Read", file=self.png)
+        read = g.create("Read", file=self.png, colorspace="Raw")  # raw values: no sRGB decode
         e = comp.Engine(threads=2, tile_size=4)
         info = e.info(read)
         self.assertEqual(info.data_window, (0, 0, 16, 8))
@@ -205,7 +222,7 @@ class RenderTests(TempDirTest):
         self.assertEqual(part.pixel(1, 1), img.pixel(1, 1))
 
     def test_memoryview_without_numpy(self):
-        read = comp.Graph().create("Read", file=self.png)
+        read = comp.Graph().create("Read", file=self.png, colorspace="Raw")
         mv = memoryview(comp.Engine().render(read))
         self.assertEqual((mv.shape, mv.format, mv.readonly), ((8, 16, 4), "f", True))
         self.assertAlmostEqual(mv[2, 3, 0], 30 / 255, places=5)
@@ -213,7 +230,7 @@ class RenderTests(TempDirTest):
     @unittest.skipUnless(np, "needs numpy")
     def test_numpy_view(self):
         g = comp.Graph()
-        read = g.create("Read", file=self.png)
+        read = g.create("Read", file=self.png, colorspace="Raw")
         xf = g.create("Transform", translate=(5, 3), filter="nearest")
         g.connect(read, xf)
         img = comp.Engine().render(xf)
@@ -249,9 +266,38 @@ class RenderTests(TempDirTest):
         e.cache_bytes = 0
         self.assertEqual(e.cache_bytes_used, 0)
 
+    def test_render_in_threads_while_editing(self):
+        # Renders release the GIL and work from a snapshot: other threads can
+        # keep editing the graph, and several engines can render at once.
+        import threading
+        g = comp.Graph()
+        read = g.create("Read", file=self.png, colorspace="Raw")
+        grade = g.create("Grade", multiply=1.0)
+        g.connect(read, grade)
+        errors, results = [], []
+
+        def worker():
+            e = comp.Engine(threads=2, tile_size=4)
+            try:
+                for _ in range(20):
+                    results.append(e.render(grade).pixel(3, 2)[0])
+            except Exception as ex:  # pragma: no cover
+                errors.append(ex)
+
+        threads = [threading.Thread(target=worker) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for i in range(200):
+            grade["multiply"] = 1.0 + (i % 2)  # flips between 1 and 2
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        base = 30 / 255
+        self.assertTrue(all(abs(v - base) < 1e-5 or abs(v - 2 * base) < 1e-5 for v in results))
+
     def test_write_and_read_back(self):
         g = comp.Graph()
-        read = g.create("Read", file=self.png)
+        read = g.create("Read", file=self.png, colorspace="Raw")
         grade = g.create("Grade", multiply=0.5)
         write = g.create("Write", file=self.path("out/out.####.exr"), datatype="float")
         g.connect(read, grade)
@@ -284,6 +330,107 @@ class RenderTests(TempDirTest):
             comp.Engine(threads=-1)
         with self.assertRaisesRegex(comp.Error, "tile size"):
             comp.Engine(tile_size=0)
+
+
+class ColorTests(TempDirTest):
+    def test_config(self):
+        c = comp.ColorConfig.current()
+        self.assertEqual(c.source, "built-in")  # ctest clears $OCIO
+        self.assertEqual(c.working_space, "ACEScg")
+        self.assertIn("sRGB - Texture", c.color_spaces)
+        self.assertTrue(c.has("matte_paint") and not c.has("nope"))
+        self.assertEqual(c.resolve("matte_paint"), "sRGB - Texture")
+        with self.assertRaisesRegex(comp.Error, "unknown color space 'nope'"):
+            c.resolve("nope")
+        with self.assertRaisesRegex(comp.Error, "OCIO config"):
+            comp.ColorConfig.from_file(self.path("missing.ocio"))
+
+    def test_png_is_srgb_by_default(self):
+        # Reading an 8-bit file decodes sRGB into the working space: the same
+        # as reading it raw and converting with a ColorSpace node.
+        g = comp.Graph()
+        auto = g.create("Read", file=self.png)
+        raw = g.create("Read", file=self.png, colorspace="Raw")
+        cs = g.create("ColorSpace", **{"in": "sRGB - Texture", "out": "ACEScg"})
+        g.connect(raw, cs)
+        e = comp.Engine()
+        a, b = e.render(auto), e.render(cs)
+        for x, y in [(0, 0), (3, 2), (15, 7)]:
+            for va, vb in zip(a.pixel(x, y), b.pixel(x, y)):
+                self.assertAlmostEqual(va, vb, places=6)
+        self.assertNotAlmostEqual(a.pixel(3, 2)[1], raw_value := 40 / 255, places=3)
+        self.assertAlmostEqual(e.render(raw).pixel(3, 2)[1], raw_value, places=5)
+
+    def test_round_trip_through_png(self):
+        g = comp.Graph()
+        read = g.create("Read", file=self.png)
+        write = g.create("Write", file=self.path("rt.png"), datatype="uint8")
+        g.connect(read, write)
+        e = comp.Engine()
+        write.execute(e)
+        back = g.create("Read", file=self.path("rt.png"))
+        raw = g.create("Read", file=self.path("rt.png"), colorspace="Raw")
+        # The file holds the original 8-bit values again...
+        self.assertAlmostEqual(e.render(raw).pixel(3, 2)[0], 30 / 255, places=5)
+        # ...and reads back to the same working-space pixels.
+        for va, vb in zip(e.render(back).pixel(3, 2), e.render(read).pixel(3, 2)):
+            self.assertAlmostEqual(va, vb, places=3)
+
+
+class OfxTests(TempDirTest):
+    """Uses the test plugins in tests/ofx (ctest sets $OFX_PLUGIN_PATH)."""
+
+    def test_plugin_node(self):
+        self.assertIn("ofx:org.comp.test.Gain", comp.node_types())
+        g = comp.Graph()
+        read = g.create("Read", file=self.png, colorspace="Raw")
+        gain = g.create("ofx:org.comp.test.Gain", gain=2.0)
+        self.assertEqual(gain.name, "Gain1")
+        self.assertEqual(gain.type, "ofx:org.comp.test.Gain")
+        g.connect(read, gain)
+        e = comp.Engine(tile_size=4)
+        self.assertAlmostEqual(e.render(gain).pixel(3, 2)[0], 2 * 30 / 255, places=5)
+        gain["mode"] = "add"
+        self.assertAlmostEqual(e.render(gain).pixel(3, 2)[0], 30 / 255 + 2, places=5)
+
+        gain["fail"] = True
+        with self.assertRaisesRegex(comp.Error, "gain plugin asked to fail"):
+            e.render(gain)
+        with self.assertRaisesRegex(comp.Error, "is a generator"):
+            g.create("ofx:org.comp.test.Generator")
+
+
+class ProjectTests(TempDirTest):
+    def test_save_and_load(self):
+        g = comp.Graph()
+        read = g.create("Read", file=self.png)
+        grade = g.create("Grade", gain=(2.0, 1.0, 0.5, 1.0), multiply=2.0, gamma=1)
+        g.connect(read, grade)
+        path = self.path("shot.comp")
+        g.save(path)
+        self.assertFalse(os.path.exists(path + ".partial"))
+
+        back = comp.Graph.load(path)
+        self.assertEqual([n.name for n in back.nodes], ["Read1", "Grade1"])
+        self.assertEqual(back["Grade1"].params, grade.params)
+        self.assertEqual(type(back["Grade1"]["gamma"]), int)  # types survive
+        self.assertEqual(back["Grade1"].input(0), back["Read1"])
+        self.assertEqual(back.to_json(), g.to_json())
+
+        # Same pixels from the loaded graph.
+        e = comp.Engine()
+        a, b = e.render(grade), e.render(back["Grade1"])
+        self.assertEqual(bytes(memoryview(a)), bytes(memoryview(b)))
+
+    def test_json_text(self):
+        g = comp.Graph.from_json('{"format": "comp", "version": 1, "nodes": ['
+                                 '{"name": "G", "type": "Grade", "params": {"mix": 0.5}}]}')
+        self.assertEqual(g["G"]["mix"], 0.5)
+        self.assertIn('"mix": 0.5', g.to_json())
+        with self.assertRaisesRegex(comp.Error, "unknown node type 'Blur'"):
+            comp.Graph.from_json('{"format": "comp", "version": 1, "nodes": [{"name": "B", "type": "Blur"}]}')
+        with self.assertRaisesRegex(comp.Error, "cannot open project"):
+            comp.Graph.load(self.path("missing.comp"))
 
 
 if __name__ == "__main__":

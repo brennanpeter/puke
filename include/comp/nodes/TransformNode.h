@@ -28,6 +28,7 @@ public:
     using Node::Node;
 
     const char* typeName() const override { return "Transform"; }
+    std::vector<ParamSpec> paramSpecs() const override;
     int maxInputs() const override { return 1; }
 
     // Input pixel space -> output pixel space.

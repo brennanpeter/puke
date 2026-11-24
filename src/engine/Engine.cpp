@@ -7,82 +7,39 @@
 #include <unordered_map>
 #include <vector>
 
+#include "comp/engine/Snapshot.h"
 #include "comp/engine/ThreadPool.h"
 #include "comp/engine/TileCache.h"
 
 namespace comp {
 namespace {
 
-struct Plan {
-    std::vector<const Node*> order;  // inputs before consumers; the output is last
-    std::unordered_map<const Node*, int> index;
+using Entry = Snapshot::Entry;
 
-    int indexOf(const Node* n) const { return index.at(n); }
-};
-
-// Iterative depth-first search, so deep graphs can't overflow the call stack.
-Plan makePlan(const Node& output) {
-    enum class Mark { Visiting, Done };
-    struct Frame {
-        const Node* node;
-        int nextInput;
-    };
-
-    Plan plan;
-    std::unordered_map<const Node*, Mark> marks{{&output, Mark::Visiting}};
-    std::vector<Frame> stack{{&output, 0}};
-
-    while (!stack.empty()) {
-        const Node* node = stack.back().node;
-        const int i = stack.back().nextInput;
-
-        if (i < node->maxInputs()) {
-            ++stack.back().nextInput;
-            const Node* in = node->input(i);
-            if (!in) {
-                if (!node->inputOptional(i))
-                    throw Error(node->name() + ": input " + std::to_string(i) + " is not connected");
-                continue;
-            }
-            auto it = marks.find(in);
-            if (it == marks.end()) {
-                marks.emplace(in, Mark::Visiting);
-                stack.push_back({in, 0});
-            } else if (it->second == Mark::Visiting) {
-                throw Error("cycle in graph: " + node->name() + " depends on " + in->name() +
-                            ", which depends on " + node->name());
-            }
-        } else {
-            marks[node] = Mark::Done;
-            plan.index.emplace(node, static_cast<int>(plan.order.size()));
-            plan.order.push_back(node);
-            stack.pop_back();
-        }
-    }
-    return plan;
-}
-
-// Runs a node hook, making sure any exception names the node it came from.
+// Runs a node hook with the snapshot's parameters bound (see ParamScope),
+// making sure any exception names the node it came from.
 template <typename F>
-auto inNode(const Node& node, const char* stage, F&& f) {
+auto inNode(const Entry& e, const char* stage, F&& f) {
+    ParamScope scope(*e.node, *e.params);
     try {
         return f();
     } catch (const Error&) {
         throw;  // our errors already carry the node name
-    } catch (const std::exception& e) {
-        throw Error(node.name() + ": " + stage + " failed: " + e.what());
+    } catch (const std::exception& ex) {
+        throw Error(e.node->name() + ": " + stage + " failed: " + ex.what());
     }
 }
 
-std::vector<ImageInfo> computeInfos(const Plan& plan, const RenderContext& ctx) {
-    std::vector<ImageInfo> infos(plan.order.size());
+std::vector<ImageInfo> computeInfos(const Snapshot& snap, const RenderContext& ctx) {
+    const auto& entries = snap.entries();
+    std::vector<ImageInfo> infos(entries.size());
     std::vector<const ImageInfo*> ins;
-    for (std::size_t i = 0; i < plan.order.size(); ++i) {
-        const Node* node = plan.order[i];
-        ins.assign(node->maxInputs(), nullptr);
-        for (int j = 0; j < node->maxInputs(); ++j)
-            if (const Node* in = node->input(j)) ins[j] = &infos[plan.indexOf(in)];
-        infos[i] = inNode(*node, "info", [&] { return node->computeInfo(ctx, ins); });
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const Entry& e = entries[i];
+        ins.assign(e.inputs.size(), nullptr);
+        for (std::size_t j = 0; j < e.inputs.size(); ++j)
+            if (e.inputs[j] >= 0) ins[j] = &infos[e.inputs[j]];
+        infos[i] = inNode(e, "info", [&] { return e.node->computeInfo(ctx, ins); });
     }
     return infos;
 }
@@ -115,22 +72,20 @@ void hashParam(Hasher& h, const ParamValue& v) {
 
 // Each node's cache key, bottom-up: the node's identity, type and
 // parameters, the frame, its inputs' hashes, and whatever appendHash() adds.
-std::vector<std::uint64_t> computeHashes(const Plan& plan, const RenderContext& ctx) {
-    std::vector<std::uint64_t> hashes(plan.order.size());
-    for (std::size_t i = 0; i < plan.order.size(); ++i) {
-        const Node* node = plan.order[i];
+std::vector<std::uint64_t> computeHashes(const Snapshot& snap, const RenderContext& ctx) {
+    const auto& entries = snap.entries();
+    std::vector<std::uint64_t> hashes(entries.size());
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const Entry& e = entries[i];
         Hasher h;
-        h.add(node->id()).add(std::string_view(node->typeName())).add(ctx.frame);
-        h.add(node->params().size());
-        for (const auto& [key, value] : node->params()) {  // std::map: sorted, so order is stable
+        h.add(e.node->id()).add(std::string_view(e.node->typeName())).add(ctx.frame);
+        h.add(e.params->size());
+        for (const auto& [key, value] : *e.params) {  // std::map: sorted, so order is stable
             h.add(std::string_view(key));
             hashParam(h, value);
         }
-        for (int j = 0; j < node->maxInputs(); ++j) {
-            const Node* in = node->input(j);
-            h.add(in ? hashes[plan.indexOf(in)] : std::uint64_t{0});
-        }
-        inNode(*node, "hash", [&] { node->appendHash(h, ctx); });
+        for (int in : e.inputs) h.add(in >= 0 ? hashes[in] : std::uint64_t{0});
+        inNode(e, "hash", [&] { e.node->appendHash(h, ctx); });
         hashes[i] = h.value();
     }
     return hashes;
@@ -179,18 +134,23 @@ void Engine::clearCache() {
 
 std::size_t Engine::cacheBytesUsed() const { return cache_ ? cache_->bytesUsed() : 0; }
 
-ImageInfo Engine::info(const Node& output, const RenderContext& ctx) {
-    const Plan plan = makePlan(output);
-    return computeInfos(plan, ctx).back();
+ImageInfo Engine::info(const Node& output, const RenderContext& ctx) { return info(Snapshot::of(output), ctx); }
+
+ImageInfo Engine::info(const Snapshot& snapshot, const RenderContext& ctx) {
+    return computeInfos(snapshot, ctx).back();
 }
 
 Image Engine::render(const Node& output, const RenderContext& ctx, const Box& region) {
+    return render(Snapshot::of(output), ctx, region);
+}
+
+Image Engine::render(const Snapshot& snap, const RenderContext& ctx, const Box& region) {
     stats_ = {};
-    const Plan plan = makePlan(output);
-    const std::vector<ImageInfo> infos = computeInfos(plan, ctx);
+    const auto& entries = snap.entries();
+    const std::vector<ImageInfo> infos = computeInfos(snap, ctx);
     const std::vector<std::uint64_t> hashes =
-        cache_ ? computeHashes(plan, ctx) : std::vector<std::uint64_t>(plan.order.size());
-    const int n = static_cast<int>(plan.order.size());
+        cache_ ? computeHashes(snap, ctx) : std::vector<std::uint64_t>(entries.size());
+    const int n = static_cast<int>(entries.size());
 
     // Regions and cache lookups, top-down. Reverse topological order
     // guarantees every consumer of a node has added its request before that
@@ -210,7 +170,8 @@ Image Engine::render(const Node& output, const RenderContext& ctx, const Box& re
     std::vector<std::vector<std::shared_ptr<const Image>>> hits(n);
     regions[n - 1] = region;
     for (int i = n - 1; i >= 0; --i) {
-        const Node* node = plan.order[i];
+        const Entry& e = entries[i];
+        const Node* node = e.node;
         regions[i] = regions[i].intersect(infos[i].dataWindow);
         if (regions[i].empty()) continue;
 
@@ -224,37 +185,37 @@ Image Engine::render(const Node& output, const RenderContext& ctx, const Box& re
         }
         if (misses.empty()) continue;
 
-        for (int j = 0; j < node->maxInputs(); ++j) {
-            const Node* in = node->input(j);
-            if (!in) continue;
-            const Box need = inNode(*node, "region", [&] { return node->inputRegion(ctx, j, misses); });
-            const int k = plan.indexOf(in);
+        for (int j = 0; j < static_cast<int>(e.inputs.size()); ++j) {
+            const int k = e.inputs[j];
+            if (k < 0) continue;
+            const Box need = inNode(e, "region", [&] { return node->inputRegion(ctx, j, misses); });
             regions[k] = regions[k].unite(need);
         }
     }
 
     // How many times each node's image will be read, so it can be freed early.
     std::vector<int> usesLeft(n, 0);
-    for (const Node* node : plan.order)
-        for (int j = 0; j < node->maxInputs(); ++j)
-            if (const Node* in = node->input(j)) ++usesLeft[plan.indexOf(in)];
+    for (const Entry& e : entries)
+        for (int in : e.inputs)
+            if (in >= 0) ++usesLeft[in];
 
     // Compute, bottom-up.
     std::vector<Image> images(n);
     std::vector<const Image*> ins;
     for (int i = 0; i < n; ++i) {
-        const Node* node = plan.order[i];
+        const Entry& e = entries[i];
+        const Node* node = e.node;
         const Box& nodeRegion = regions[i];
         if (nodeRegion.empty()) {
             images[i] = Image(Box{}, infos[i].channels);  // nothing needed from this node
         } else {
-            ins.assign(node->maxInputs(), nullptr);
-            for (int j = 0; j < node->maxInputs(); ++j)
-                if (const Node* in = node->input(j)) ins[j] = &images[plan.indexOf(in)];
+            ins.assign(e.inputs.size(), nullptr);
+            for (std::size_t j = 0; j < e.inputs.size(); ++j)
+                if (e.inputs[j] >= 0) ins[j] = &images[e.inputs[j]];
 
             // Runs compute() for one tile and checks it kept to the contract.
             auto computeTile = [&](const Box& tile) {
-                Image img = inNode(*node, "render", [&] { return node->compute(ctx, tile, ins); });
+                Image img = inNode(e, "render", [&] { return node->compute(ctx, tile, ins); });
                 if (img.region() != tile || img.channels() != infos[i].channels)
                     throw Error(node->name() + ": " + node->typeName() +
                                 " node returned a different region or channel list than requested");
@@ -292,11 +253,8 @@ Image Engine::render(const Node& output, const RenderContext& ctx, const Box& re
             if (missed > 0) ++stats_.nodesComputed;
         }
 
-        for (int j = 0; j < node->maxInputs(); ++j)
-            if (const Node* in = node->input(j)) {
-                const int k = plan.indexOf(in);
-                if (--usesLeft[k] == 0) images[k] = Image{};
-            }
+        for (int k : e.inputs)
+            if (k >= 0 && --usesLeft[k] == 0) images[k] = Image{};
     }
     // The output was clipped to its data window; give the caller exactly what
     // they asked for, zero-padded.

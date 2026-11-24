@@ -3,11 +3,13 @@
 #include <functional>
 #include <map>
 
+#include "comp/nodes/ColorSpaceNode.h"
 #include "comp/nodes/GradeNode.h"
 #include "comp/nodes/MergeNode.h"
 #include "comp/nodes/ReadNode.h"
 #include "comp/nodes/TransformNode.h"
 #include "comp/nodes/WriteNode.h"
+#include "comp/ofx/OfxHost.h"
 
 namespace comp {
 namespace {
@@ -22,6 +24,7 @@ Factory make() {
 // std::map, so nodeTypes() comes out sorted.
 const std::map<std::string, Factory>& registry() {
     static const std::map<std::string, Factory> types{
+        {"ColorSpace", make<ColorSpaceNode>()},
         {"Grade", make<GradeNode>()},
         {"Merge", make<MergeNode>()},
         {"Read", make<ReadNode>()},
@@ -36,15 +39,19 @@ const std::map<std::string, Factory>& registry() {
 std::vector<std::string> nodeTypes() {
     std::vector<std::string> names;
     for (const auto& [name, factory] : registry()) names.push_back(name);
+    for (const auto& p : ofx::plugins()) names.push_back(ofx::kNodeTypePrefix + p.identifier);
     return names;
 }
 
 std::unique_ptr<Node> createNode(const std::string& type, const std::string& name) {
+    const std::string prefix = ofx::kNodeTypePrefix;
+    if (type.rfind(prefix, 0) == 0) return ofx::createNode(type.substr(prefix.size()), name);
     auto it = registry().find(type);
     if (it == registry().end()) {
         std::string known;
-        for (const auto& t : nodeTypes()) known += (known.empty() ? "" : ", ") + t;
-        throw Error("unknown node type '" + type + "' (known types: " + known + ")");
+        for (const auto& [t, factory] : registry()) known += (known.empty() ? "" : ", ") + t;
+        throw Error("unknown node type '" + type + "' (built-in types: " + known +
+                    "; OFX plugins are \"ofx:<plugin id>\")");
     }
     return it->second(name);
 }

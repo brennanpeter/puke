@@ -13,6 +13,7 @@
 
 #include "TestUtil.h"
 #include "comp/engine/Engine.h"
+#include "comp/engine/Snapshot.h"
 #include "comp/engine/ThreadPool.h"
 #include "comp/engine/TileCache.h"
 #include "comp/graph/Graph.h"
@@ -709,6 +710,80 @@ static void testCacheLimits() {
     CHECK(e.cacheBytesUsed() == 0);
 }
 
+// ---------------------------------------------------------------- snapshots
+
+static void testSnapshotsAreFrozen() {
+    CacheGraph cg;
+    Engine e;
+    const Snapshot before = Snapshot::of(cg.blur);
+    const Image original = e.render(cg.blur, {}, kFormat);
+
+    // Edit parameters, connections, and remove a node: the snapshot still
+    // renders the graph as it was.
+    cg.c1.setParam("value", 0.9);
+    cg.g.disconnect(cg.add, 1);
+    cg.g.remove(cg.c2);  // the snapshot keeps it alive
+    CHECK(samePixels(e.render(before, {}, kFormat), original));
+
+    // A new snapshot sees the edits.
+    CHECK(!samePixels(e.render(cg.blur, {}, kFormat), original));
+
+    // Parameters are copy-on-write: a snapshot's map never changes.
+    const auto params = cg.c1.paramsSnapshot();
+    cg.c1.setParam("value", 0.1);
+    CHECK(std::get<double>(params->at("value")) == 0.9);
+    cg.c1.clearParam("value");
+    CHECK(!cg.c1.hasParam("value") && params->count("value") == 1);
+
+    // Snapshots check the graph like render() does.
+    Graph g;
+    auto& add = g.create<AddNode>("Add1");
+    CHECK_THROWS(Snapshot::of(add), "Add1: input 0 is not connected");
+}
+
+static void testEditingWhileRendering() {
+    // One thread edits the graph as fast as it can while another renders
+    // snapshots of it: every render must match one of the values the graph
+    // actually had, never a mix. (Run under ThreadSanitizer to check for races.)
+    CacheGraph cg;
+    std::atomic<bool> done = false;
+    std::mutex snapMutex;
+    std::vector<std::pair<double, Snapshot>> pending;  // value at snapshot time, snapshot
+    std::atomic<int> bad = 0, rendered = 0;
+
+    std::thread renderer([&] {
+        Engine e(EngineOptions{.threads = 2, .tileSize = 8});
+        while (!done || !pending.empty()) {
+            std::pair<double, Snapshot> job;
+            {
+                std::lock_guard lock(snapMutex);
+                if (pending.empty()) {
+                    if (done) break;
+                    continue;
+                }
+                job = std::move(pending.back());
+                pending.clear();
+            }
+            const Image img = e.render(job.second, {}, {5, 5, 6, 6});
+            // Constant1 (value v) + Constant2 (0.25), blurred over a flat area.
+            if (std::fabs(img.pixel(5, 5)[0] - float(job.first + 0.25)) > 1e-5f) ++bad;
+            ++rendered;
+        }
+    });
+    for (int i = 0; i < 300; ++i) {
+        const double v = 0.001 * i;
+        cg.c1.setParam("value", v);
+        if (i % 3 == 0) {
+            std::lock_guard lock(snapMutex);
+            pending.emplace_back(v, Snapshot::of(cg.blur));
+        }
+        cg.c2.setParam("unused", i);  // more edits between snapshots
+    }
+    done = true;
+    renderer.join();
+    CHECK(bad == 0 && rendered > 0);
+}
+
 int main() {
     try {
         testRegionOfInterest();
@@ -733,6 +808,8 @@ int main() {
         testCacheRecomputesOnlyDownstreamOfAnEdit();
         testCacheKeepsNodesApart();
         testCacheLimits();
+        testSnapshotsAreFrozen();
+        testEditingWhileRendering();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "unexpected exception: %s\n", e.what());
         ++test::failures;

@@ -26,6 +26,7 @@
 #include "TestUtil.h"
 #include "comp/engine/Engine.h"
 #include "comp/graph/Graph.h"
+#include "comp/nodes/ColorSpaceNode.h"
 #include "comp/nodes/GradeNode.h"
 #include "comp/nodes/MergeNode.h"
 #include "comp/nodes/ReadNode.h"
@@ -126,6 +127,14 @@ static std::vector<Case> cases() {
              return grade;
          }},
 
+        {"colorspace_cct", [](Graph& g) -> Node& {
+             // Working space to ACEScct: overscan, alpha and the Z channel
+             // all go through; only color inside the data window changes.
+             auto& cs = g.create<ColorSpaceNode>("ColorSpace1");
+             g.connect(read(g, "FG", "fg.exr"), cs, 0);
+             cs.setParam("out", std::string("ACEScct"));
+             return cs;
+         }},
         {"transform_nearest", [](Graph& g) -> Node& { return transform(g, read(g, "FG", "fg.exr"), "nearest"); }},
         {"transform_bilinear", [](Graph& g) -> Node& { return transform(g, read(g, "FG", "fg.exr"), "bilinear"); }},
         {"transform_cubic", [](Graph& g) -> Node& { return transform(g, read(g, "FG", "fg.exr"), "cubic"); }},

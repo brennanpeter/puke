@@ -12,7 +12,9 @@ namespace comp {
 // "Grade", ...). Front ends that build graphs from text (Python, project
 // files) create nodes through this rather than naming C++ classes.
 
-// Every type name createNode() accepts, in alphabetical order.
+// Every type name createNode() accepts: the built-in types in alphabetical
+// order, then OFX plugins as "ofx:<identifier>" (see comp/ofx/OfxHost.h).
+// The first call scans for OFX plugins.
 std::vector<std::string> nodeTypes();
 
 // A new, unconnected node of the given type. Throws Error for an unknown type.

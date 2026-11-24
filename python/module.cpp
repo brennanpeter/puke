@@ -8,6 +8,7 @@
 //   engine = comp.Engine()
 //   img = engine.render(grade, frame=1001)
 //   pixels = np.asarray(img)          # shape (height, width, channels), float32
+//   g.save("shot.comp")               # comp.Graph.load("shot.comp") reads it back
 //
 // Notes on the design:
 //   - Graphs own their nodes. Python only ever holds a handle (graph + node
@@ -15,23 +16,31 @@
 //     Graph.remove() raises comp.Error instead of crashing.
 //   - Images expose their pixels through the buffer protocol, read-only and
 //     without copying; numpy is not needed to build or import the module.
-//   - Renders keep the GIL held, so Python code can't edit a graph while it
-//     is being rendered. The engine still uses all its threads. Once renders
-//     work from immutable snapshots, the GIL can be released.
+//   - Engine.render() and .info() snapshot the graph (with the GIL held),
+//     then release the GIL while rendering: other Python threads keep
+//     running and may edit the graph without affecting that render. One
+//     Engine renders one thing at a time; a second call waits its turn.
+//     Write.execute() keeps the GIL (it snapshots part-way through).
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/stl/filesystem.h>
 
 #include <cmath>
+#include <filesystem>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 
+#include "comp/color/ColorConfig.h"
 #include "comp/engine/Engine.h"
+#include "comp/engine/Snapshot.h"
 #include "comp/graph/Graph.h"
 #include "comp/nodes/Registry.h"
 #include "comp/nodes/WriteNode.h"
+#include "comp/project/Project.h"
 
 namespace py = pybind11;
 using namespace py::literals;
@@ -126,10 +135,13 @@ std::optional<NodeRef> optionalRef(const std::shared_ptr<Graph>& g, Node* n) {
     return refTo(g, *n);
 }
 
-// Graph.create() names: "Grade1", "Grade2", ... first one not taken.
+// Graph.create() names: "Grade1", "Grade2", ... first one not taken. OFX
+// types ("ofx:net.sf.openfx.GammaPlugin") use the identifier's last part.
 std::string freeName(const Graph& g, const std::string& type) {
+    std::string base = type;
+    if (base.rfind("ofx:", 0) == 0) base = base.substr(base.find_last_of(".:") + 1);
     for (int i = 1;; ++i) {
-        std::string name = type + std::to_string(i);
+        std::string name = base + std::to_string(i);
         if (!g.find(name)) return name;
     }
 }
@@ -146,6 +158,14 @@ std::string reprChannels(const comp::ChannelList& c) {
 }
 
 comp::RenderContext context(double frame) { return comp::RenderContext{frame}; }
+
+// What Python's Engine wraps: an engine plus a lock, because renders run
+// without the GIL and an Engine renders one thing at a time.
+struct PyEngine {
+    explicit PyEngine(comp::EngineOptions o) : engine(o) {}
+    Engine engine;
+    std::mutex mutex;
+};
 
 }  // namespace
 
@@ -247,32 +267,53 @@ without copying. Array index [row, col] is pixel (region.x0 + col, region.y0 + r
 
     // ------------------------------------------------------------ Engine
 
-    py::class_<Engine>(m, "Engine", R"(Renders node graphs.
+    py::class_<PyEngine>(m, "Engine", R"(Renders node graphs.
 
 threads:     0 = one per core, 1 = the calling thread only
 tile_size:   tile edge in pixels
-cache_bytes: memory for the tile cache; 0 turns it off.)")
+cache_bytes: memory for the tile cache; 0 turns it off.
+
+Renders release the GIL: the graph is snapshotted first, so other threads
+may keep editing it. One Engine renders one thing at a time.)")
         .def(py::init([](int threads, int tileSize, std::size_t cacheBytes) {
                  if (threads < 0) throw py::value_error("threads must be 0 or more");
-                 return std::make_unique<Engine>(comp::EngineOptions{threads, tileSize, cacheBytes});
+                 return std::make_unique<PyEngine>(comp::EngineOptions{threads, tileSize, cacheBytes});
              }),
              "threads"_a = 0, "tile_size"_a = 64, "cache_bytes"_a = 0)
-        .def_property_readonly("threads", &Engine::threads)
-        .def_property_readonly("tile_size", [](const Engine& e) { return e.options().tileSize; })
-        .def_property("cache_bytes", [](const Engine& e) { return e.options().cacheBytes; },
-                      &Engine::setCacheBytes)
-        .def_property_readonly("cache_bytes_used", &Engine::cacheBytesUsed)
-        .def("clear_cache", &Engine::clearCache)
-        .def_property_readonly("last_stats", &Engine::lastStats)
+        .def_property_readonly("threads", [](const PyEngine& e) { return e.engine.threads(); })
+        .def_property_readonly("tile_size", [](const PyEngine& e) { return e.engine.options().tileSize; })
+        .def_property(
+            "cache_bytes", [](const PyEngine& e) { return e.engine.options().cacheBytes; },
+            [](PyEngine& e, std::size_t bytes) {
+                py::gil_scoped_release nogil;
+                std::lock_guard lock(e.mutex);
+                e.engine.setCacheBytes(bytes);
+            })
+        .def_property_readonly("cache_bytes_used", [](const PyEngine& e) { return e.engine.cacheBytesUsed(); })
+        .def("clear_cache",
+             [](PyEngine& e) {
+                 py::gil_scoped_release nogil;
+                 std::lock_guard lock(e.mutex);
+                 e.engine.clearCache();
+             })
+        .def_property_readonly("last_stats", [](const PyEngine& e) { return e.engine.lastStats(); })
         .def(
-            "info", [](Engine& e, const NodeRef& n, double frame) { return e.info(n.get(), context(frame)); },
+            "info",
+            [](PyEngine& e, const NodeRef& n, double frame) {
+                const auto snap = comp::Snapshot::of(n.get());  // with the GIL: nothing edits meanwhile
+                py::gil_scoped_release nogil;
+                std::lock_guard lock(e.mutex);
+                return e.engine.info(snap, context(frame));
+            },
             "node"_a, "frame"_a = 1.0)
         .def(
             "render",
-            [](Engine& e, const NodeRef& n, std::optional<Box> region, double frame) {
-                const Node& node = n.get();
+            [](PyEngine& e, const NodeRef& n, std::optional<Box> region, double frame) {
+                const auto snap = comp::Snapshot::of(n.get());
+                py::gil_scoped_release nogil;
+                std::lock_guard lock(e.mutex);
                 const auto ctx = context(frame);
-                return e.render(node, ctx, region ? *region : e.info(node, ctx).dataWindow);
+                return e.engine.render(snap, ctx, region ? *region : e.engine.info(snap, ctx).dataWindow);
             },
             "node"_a, "region"_a = py::none(), "frame"_a = 1.0,
             "Renders `region` (default: the node's data window). Pixels outside the data window are zero.");
@@ -330,6 +371,43 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
                 return n;
             },
             "Sets several parameters: node.set(gain=1.2, mix=0.5). Returns the node.")
+        .def_property_readonly(
+            "param_specs",
+            [](const NodeRef& n) {
+                static const char* kinds[] = {"bool", "int", "float", "str", "file", "choice", "vec2", "color"};
+                py::list out;
+                for (const auto& s : n.get().paramSpecs()) {
+                    py::dict d;
+                    d["name"] = s.name;
+                    d["kind"] = kinds[static_cast<int>(s.kind)];
+                    d["default"] = fromParam(s.defaultValue);
+                    d["label"] = s.label.empty() ? s.name : s.label;
+                    d["hint"] = s.hint;
+                    if (s.kind == comp::ParamSpec::Kind::Choice) {
+                        d["options"] = s.options;
+                        d["open_choice"] = s.openChoice;
+                    }
+                    d["range"] = py::make_tuple(s.min, s.max);
+                    d["optional"] = s.optional;
+                    out.append(d);
+                }
+                return out;
+            },
+            "The parameters this node type understands, as dicts: name, kind, default, label, hint, ...")
+        .def("clear", [](const NodeRef& n, const std::string& key) { n.get().clearParam(key); }, "key"_a,
+             "Removes a parameter, so the node uses its default again.")
+        .def_property(
+            "position",
+            [](const NodeRef& n) -> py::object {
+                const auto& p = n.get().position();
+                return p ? py::object(py::make_tuple((*p)[0], (*p)[1])) : py::object(py::none());
+            },
+            [](const NodeRef& n, py::object v) {
+                if (v.is_none()) return n.get().setPosition(std::nullopt);
+                const auto t = v.cast<std::pair<double, double>>();
+                n.get().setPosition(Vec2{t.first, t.second});
+            },
+            "Where the node sits in a node graph editor, or None. Saved in projects.")
         .def_property_readonly("params",
                                [](const NodeRef& n) {
                                    py::dict d;
@@ -339,11 +417,12 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
                                "A copy of all parameters as a dict.")
         .def(
             "execute",
-            [](const NodeRef& n, Engine& engine, double frame) {
+            [](const NodeRef& n, PyEngine& engine, double frame) {
                 const auto* write = dynamic_cast<const comp::WriteNode*>(&n.get());
                 if (!write) throw py::type_error(n.get().name() + " is a " + n.get().typeName() +
                                                  " node; only Write nodes can be executed");
-                return write->execute(engine, context(frame));
+                std::lock_guard lock(engine.mutex);  // the GIL stays held: execute() snapshots part-way
+                return write->execute(engine.engine, context(frame));
             },
             "engine"_a, "frame"_a = 1.0, "Write nodes only: renders and writes one frame. Returns the path written.")
         .def("__eq__", [](const NodeRef& a, const NodeRef& b) { return a.node == b.node && a.id == b.id; })
@@ -357,10 +436,47 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
             }
         });
 
+    // ------------------------------------------------------------ ColorConfig
+
+    using ConfigPtr = std::shared_ptr<comp::ColorConfig>;
+    auto mut = [](std::shared_ptr<const comp::ColorConfig> c) { return std::const_pointer_cast<comp::ColorConfig>(c); };
+    py::class_<comp::ColorConfig, ConfigPtr>(m, "ColorConfig", R"(An OpenColorIO config.
+
+Pixels inside a graph are in the working space (the config's scene_linear
+role). Read converts into it, Write out of it, the ColorSpace node between
+any two spaces. The current config is $OCIO if set, else comp's built-in one.
+Color space names may also be OCIO roles ("scene_linear", "matte_paint").)")
+        .def_static("builtin", [mut] { return mut(comp::ColorConfig::builtin()); })
+        .def_static("from_file", [mut](const std::string& path) { return mut(comp::ColorConfig::fromFile(path)); },
+                    "path"_a)
+        .def_static("from_environment", [mut] { return mut(comp::ColorConfig::fromEnvironment()); },
+                    "$OCIO if set and not empty, otherwise the built-in config.")
+        .def_static("current", [mut] { return mut(comp::ColorConfig::current()); }, "The config nodes use.")
+        .def_static(
+            "set_current", [](const ConfigPtr& c) { comp::ColorConfig::setCurrent(c); }, "config"_a,
+            "Makes `config` current. None: reload from the environment on next use.")
+        .def_property_readonly("source", &comp::ColorConfig::source, "The file it came from, or 'built-in'.")
+        .def_property_readonly("color_spaces", &comp::ColorConfig::colorSpaces)
+        .def_property_readonly("working_space", &comp::ColorConfig::workingSpace)
+        .def("has", &comp::ColorConfig::has, "name"_a)
+        .def("resolve", &comp::ColorConfig::resolve, "name"_a, "The color space a name or role refers to.")
+        .def("__repr__", [](const comp::ColorConfig& c) { return "<ColorConfig '" + c.source() + "'>"; });
+
     // ------------------------------------------------------------ Graph
 
     py::class_<Graph, std::shared_ptr<Graph>>(m, "Graph", "Owns nodes and their connections.")
         .def(py::init<>())
+        .def_static(
+            "load",
+            [](const std::filesystem::path& path) { return std::make_shared<Graph>(comp::loadProject(path)); },
+            "path"_a, "Reads a project file (.comp).")
+        .def_static(
+            "from_json",
+            [](const std::string& text) { return std::make_shared<Graph>(comp::projectFromJson(text)); },
+            "text"_a, "Reads a project from a JSON string.")
+        .def("save", [](const Graph& g, const std::filesystem::path& path) { comp::saveProject(g, path); },
+             "path"_a, "Writes the graph as a project file. The file is replaced only once fully written.")
+        .def("to_json", &comp::projectToJson, "The project file text for this graph.")
         .def(
             "create",
             [](const std::shared_ptr<Graph>& g, const std::string& type, std::optional<std::string> name,

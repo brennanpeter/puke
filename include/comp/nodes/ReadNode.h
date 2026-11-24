@@ -13,14 +13,19 @@ namespace comp {
 //   first     (int, optional)     first frame of the sequence
 //   last      (int, optional)     last frame of the sequence
 //   outside   (string, "hold")    frames outside [first, last]: "hold", "black" or "error"
+//   colorspace (string, "auto")   the file's color space (or an OCIO role). "auto":
+//                                 float and half files are taken to be in the working
+//                                 space already; integer files (8-, 16-bit) are sRGB,
+//                                 via the config's "matte_paint" role.
 //
-// Pixels are returned as float32, in whatever color space the file is in.
-// (Color management via OCIO comes in a later milestone.)
+// Pixels are returned as float32, converted into the working space (the
+// config's scene_linear role; see ColorConfig).
 class ReadNode : public Node {
 public:
     using Node::Node;
 
     const char* typeName() const override { return "Read"; }
+    std::vector<ParamSpec> paramSpecs() const override;
     int maxInputs() const override { return 0; }
 
     ImageInfo computeInfo(const RenderContext& ctx,
@@ -33,7 +38,7 @@ public:
     bool supportsTiles() const override { return false; }
 
     // The file's size and modification time, so cached tiles are dropped
-    // when the file on disk changes.
+    // when the file on disk changes; and the color config.
     void appendHash(Hasher& h, const RenderContext& ctx) const override;
 
     // The file path that would be read for this context, or "" if the frame

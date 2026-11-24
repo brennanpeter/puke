@@ -1,5 +1,7 @@
 #include "comp/nodes/TransformNode.h"
 
+#include "Specs.h"
+
 #include <cmath>
 #include <numbers>
 #include <vector>
@@ -138,6 +140,18 @@ Image TransformNode::compute(const RenderContext&, const Box& region,
         }
     }
     return out;
+}
+
+std::vector<ParamSpec> TransformNode::paramSpecs() const {
+    using namespace specs;
+    return {
+        make("translate", Kind::Vec2, Vec2{0, 0}, "Pixels; +y moves down", -1000, 1000),
+        make("rotate", Kind::Double, 0.0, "Degrees, counter-clockwise", -180, 180),
+        make("scale", Kind::Vec2, Vec2{1, 1}, "Around the center", 0, 4),
+        make("center", Kind::Vec2, Vec2{0, 0}, "Pivot for rotate and scale, in pixels", 0, 2000),
+        choice("filter", {"nearest", "bilinear", "cubic"}, "cubic", "Resampling filter"),
+        make("invert", Kind::Bool, false, "Apply the inverse transform"),
+    };
 }
 
 }  // namespace comp

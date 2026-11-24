@@ -13,6 +13,11 @@ namespace comp {
 //   file         (string, required)  output path, may contain a frame token: out.####.exr
 //   datatype     (string, "half")    "float", "half", "uint8" or "uint16"
 //   compression  (string, optional)  passed to the writer, e.g. "zip", "piz", "dwaa" for EXR
+//   colorspace   (string, "auto")    color space (or OCIO role) to write in. "auto": float
+//                                    and half files stay in the working space; integer
+//                                    files (8-, 16-bit) get sRGB, via the "matte_paint" role.
+//                                    Decided by what the format actually writes: PNG asked
+//                                    for "half" writes integers, so gets sRGB.
 //
 // Files are written to "<path>.partial" and renamed into place when complete,
 // so an interrupted render never leaves a truncated frame behind.
@@ -21,6 +26,7 @@ public:
     using Node::Node;
 
     const char* typeName() const override { return "Write"; }
+    std::vector<ParamSpec> paramSpecs() const override;
     int maxInputs() const override { return 1; }
 
     // Pass-through: a Write node can sit in the middle of a graph.

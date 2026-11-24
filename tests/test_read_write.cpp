@@ -14,6 +14,7 @@
 #include "comp/core/FramePattern.h"
 #include "comp/engine/Engine.h"
 #include "comp/graph/Graph.h"
+#include "comp/color/ColorConfig.h"
 #include "comp/nodes/ReadNode.h"
 #include "comp/nodes/WriteNode.h"
 
@@ -246,6 +247,7 @@ static void testDatatypes() {
         auto& write = g.create<WriteNode>("Write1");
         write.setParam("file", tmp(c.file));
         if (c.datatype) write.setParam("datatype", std::string(c.datatype));
+        write.setParam("colorspace", std::string("Raw"));  // this checks quantisation, not color
         g.connect(src, write, 0);
         write.execute(g_engine, {});
 
@@ -253,6 +255,7 @@ static void testDatatypes() {
 
         auto& read = g.create<ReadNode>("Read1");
         read.setParam("file", tmp(c.file));
+        read.setParam("colorspace", std::string("Raw"));
         Image img = g_engine.render(read, {}, {0, 0, 32, 32});
         float maxErr = 0;
         for (int y = 0; y < 32; ++y)
@@ -266,17 +269,19 @@ static void testDatatypes() {
         }
     }
 
-    // Integer formats clamp to [0, 1].
+    // Integer formats clamp to [0, 1]. (Raw: this checks clamping, not color.)
     Graph g;
     auto& bright = g.create<SourceNode>("Bright", Box{0, 0, 4, 4}, ChannelList{"R", "G", "B"},
                                         [](int, int, int c) { return c == 0 ? 1.5f : -0.5f; });
     auto& write = g.create<WriteNode>("Write1");
     write.setParam("file", tmp("clamp.png"));
     write.setParam("datatype", std::string("uint8"));
+    write.setParam("colorspace", std::string("Raw"));
     g.connect(bright, write, 0);
     write.execute(g_engine, {});
     auto& read = g.create<ReadNode>("Read1");
     read.setParam("file", tmp("clamp.png"));
+    read.setParam("colorspace", std::string("Raw"));
     Image img = g_engine.render(read, {}, {0, 0, 1, 1});
     CHECK(img.pixel(0, 0)[0] == 1.0f);
     CHECK(img.pixel(0, 0)[1] == 0.0f);
@@ -382,6 +387,95 @@ static void testCacheSeesFileChanges() {
     CHECK(e.lastStats().tilesComputed == 1);
 }
 
+// ---------------------------------------------------------------- color
+
+// Opaque colors inside the sRGB gamut, in the working space (ACEScg): made
+// in linear Rec.709 and converted, so they survive an sRGB file unclipped.
+static Image inGamutImage(const Box& box) {
+    Image img(box, {"R", "G", "B", "A"});
+    for (int y = box.y0; y < box.y1; ++y)
+        for (int x = box.x0; x < box.x1; ++x) {
+            float* p = img.pixel(x, y);
+            p[0] = 0.02f + 0.03f * (x - box.x0);
+            p[1] = 0.05f + 0.04f * (y - box.y0);
+            p[2] = 0.5f;
+            p[3] = 1.0f;
+        }
+    ColorConfig::builtin()->convert(img, "Linear Rec.709 (sRGB)", "ACEScg");
+    return img;
+}
+
+static float maxDiff(const Image& a, const Image& b) {
+    float m = 0;
+    for (int y = a.region().y0; y < a.region().y1; ++y)
+        for (int x = a.region().x0; x < a.region().x1; ++x)
+            for (int c = 0; c < a.numChannels(); ++c) m = std::max(m, std::fabs(a.pixel(x, y)[c] - b.at(x, y, c)));
+    return m;
+}
+
+static void testColorSpaces() {
+    const Box box{0, 0, 8, 8};
+    const Image working = inGamutImage(box);
+    Image asSrgb = working;
+    ColorConfig::builtin()->convert(asSrgb, "ACEScg", "sRGB - Texture");
+
+    Graph g;
+    auto& src = g.create<SourceNode>("Src", box, ChannelList{"R", "G", "B", "A"},
+                                     [&](int x, int y, int c) { return working.pixel(x, y)[c]; });
+    auto& write = g.create<WriteNode>("Write1");
+    g.connect(src, write, 0);
+    auto& read = g.create<ReadNode>("Read1");
+    auto& raw = g.create<ReadNode>("Raw1");
+    raw.setParam("colorspace", std::string("Raw"));
+
+    auto useFile = [&](const std::string& file) {
+        write.setParam("file", tmp(file));
+        read.setParam("file", tmp(file));
+        raw.setParam("file", tmp(file));
+        write.execute(g_engine, {});
+    };
+
+    // Integer files are sRGB by default, both ways: the file holds sRGB
+    // values, and reading it gives back the working-space pixels.
+    write.setParam("datatype", std::string("uint16"));
+    useFile("color16.tif");
+    CHECK(maxDiff(g_engine.render(raw, {}, box), asSrgb) < 2.0f / 65535);
+    CHECK(maxDiff(g_engine.render(read, {}, box), working) < 1e-3f);
+
+    // "auto" goes by what the format stores: PNG asked for half writes
+    // integers, so it's sRGB too.
+    write.setParam("datatype", std::string("half"));
+    useFile("color_half.png");
+    CHECK(maxDiff(g_engine.render(raw, {}, box), asSrgb) < 1.0f / 255);
+    CHECK(maxDiff(g_engine.render(read, {}, box), working) < 0.02f);
+
+    // Float files are already in the working space: stored as is.
+    useFile("color.exr");
+    CHECK(maxDiff(g_engine.render(raw, {}, box), working) < 1e-3f);
+
+    // An explicit color space: write ACEScct, read it back as ACEScct.
+    write.setParam("colorspace", std::string("ACEScct"));
+    read.setParam("colorspace", std::string("ACEScct"));
+    useFile("color_cct.exr");
+    Image asCct = working;
+    ColorConfig::builtin()->convert(asCct, "ACEScg", "ACEScct");
+    CHECK(maxDiff(g_engine.render(raw, {}, box), asCct) < 1e-3f);
+    CHECK(maxDiff(g_engine.render(read, {}, box), working) < 2e-3f);
+
+    // Converting only inside the data window: ACEScct maps 0 to a negative
+    // value, but the padding around the image stays 0.
+    const Image padded = g_engine.render(read, {}, {-4, -4, 12, 12});
+    CHECK(padded.pixel(-2, -2)[0] == 0.0f && padded.pixel(10, 3)[1] == 0.0f);
+
+    // Unknown color spaces fail, naming the node and listing what exists.
+    read.setParam("colorspace", std::string("Rec.709ish"));
+    CHECK_THROWS(g_engine.render(read, {}, box), "Read1: unknown color space 'Rec.709ish'");
+    CHECK_THROWS(g_engine.render(read, {}, box), "ACEScg");
+    write.setParam("colorspace", std::string("nope"));
+    CHECK_THROWS(write.execute(g_engine, {}), "Write1: unknown color space 'nope'");
+    CHECK(!fs::exists(tmp("color_cct.exr.partial")));
+}
+
 int main() {
     g_dir = fs::current_path() / "test_read_write_tmp";
     fs::remove_all(g_dir);
@@ -399,6 +493,7 @@ int main() {
         testWriteErrors();
         testWriteIsPassThrough();
         testCacheSeesFileChanges();
+        testColorSpaces();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "unexpected exception: %s\n", e.what());
         ++test::failures;

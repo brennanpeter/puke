@@ -3,6 +3,8 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -29,6 +31,42 @@ using Vec2 = std::array<double, 2>;   // x, y
 using Color = std::array<double, 4>;  // r, g, b, a
 
 using ParamValue = std::variant<bool, int, double, std::string, Vec2, Color>;
+using ParamMap = std::map<std::string, ParamValue>;
+
+// Describes one parameter of a node type, for user interfaces (a properties
+// panel builds its controls from these) and documentation. Rendering never
+// depends on them: nodes read parameters by name, with their own defaults.
+struct ParamSpec {
+    enum class Kind { Bool, Int, Double, String, File, Choice, Vec2, Color };
+
+    std::string name;
+    Kind kind = Kind::Double;
+    ParamValue defaultValue;  // what the node uses when the parameter isn't set
+    std::string label;        // empty: use the name
+    std::string hint;         // a sentence for tooltips
+    std::vector<std::string> options;  // Choice: the values offered (stored as strings)
+    bool openChoice = false;  // Choice: other values are allowed too (e.g. OCIO roles)
+    double min = 0, max = 1;  // numbers: the range a slider should cover (not a limit)
+    bool optional = false;    // may be left unset, which means something different from any value
+};
+
+class Node;
+
+// While one of these is alive, params() on `node` *in this thread* returns
+// `params` instead of the node's live values. The engine sets one around
+// every hook it calls, so a render only ever sees the parameter values of
+// the snapshot it started from, even while the graph is being edited.
+class ParamScope {
+public:
+    ParamScope(const Node& node, const ParamMap& params);
+    ~ParamScope();
+    ParamScope(const ParamScope&) = delete;
+    ParamScope& operator=(const ParamScope&) = delete;
+
+private:
+    const Node* prevNode_;
+    const ParamMap* prevParams_;
+};
 
 // Base class for all nodes.
 //
@@ -63,7 +101,11 @@ using ParamValue = std::variant<bool, int, double, std::string, Vec2, Color>;
 // two nodes never share tiles). If a node's output can change for any other
 // reason after it's created (a file on disk, say), it must add that to the
 // key in appendHash(), or stale tiles will be reused.
-class Node {
+//
+// Editing while rendering: parameters are copy-on-write (each change makes
+// a new map), so a render can keep the map it started with; see Snapshot.
+// Edit a graph from one thread only.
+class Node : public std::enable_shared_from_this<Node> {
 public:
     explicit Node(std::string name);
     virtual ~Node() = default;
@@ -81,20 +123,28 @@ public:
     // --- inputs ---
     virtual int maxInputs() const { return 0; }
     virtual bool inputOptional(int /*index*/) const { return false; }
+    // A short name for an input, for node graph editors ("B", "Mask"). Default: none.
+    virtual std::string inputLabel(int /*index*/) const { return {}; }
     void setInput(int index, Node* node);  // nullptr disconnects
     Node* input(int index) const;
     // Like input(), but throws if unconnected.
     Node& requireInput(int index) const;
 
     // --- parameters ---
-    void setParam(const std::string& key, ParamValue value) { params_[key] = std::move(value); }
-    bool hasParam(const std::string& key) const { return params_.count(key) > 0; }
-    const std::map<std::string, ParamValue>& params() const { return params_; }
+    void setParam(const std::string& key, ParamValue value);
+    // Removes a parameter, so the node uses its default again.
+    void clearParam(const std::string& key);
+    bool hasParam(const std::string& key) const { return params().count(key) > 0; }
+    // The live values, or inside a render the snapshot's (see ParamScope).
+    const ParamMap& params() const;
+    // The current values, shared: they never change once taken.
+    std::shared_ptr<const ParamMap> paramsSnapshot() const { return params_; }
 
     template <typename T>
     T param(const std::string& key) const {
-        auto it = params_.find(key);
-        if (it == params_.end()) throw Error(name_ + ": missing parameter '" + key + "'");
+        const ParamMap& ps = params();
+        auto it = ps.find(key);
+        if (it == ps.end()) throw Error(name_ + ": missing parameter '" + key + "'");
         if (const T* v = std::get_if<T>(&it->second)) return *v;
         throw Error(name_ + ": parameter '" + key + "' has the wrong type");
     }
@@ -103,6 +153,10 @@ public:
     T param(const std::string& key, T fallback) const {
         return hasParam(key) ? param<T>(key) : fallback;
     }
+
+    // The parameters this node type understands, in display order. Default:
+    // none described (the node still reads whatever parameters it's given).
+    virtual std::vector<ParamSpec> paramSpecs() const { return {}; }
 
     // Lenient getters for numeric parameters, so callers needn't care whether
     // a value was stored as 2 or 2.0, or as one number or per-component.
@@ -133,11 +187,18 @@ public:
     // Default: nothing.
     virtual void appendHash(Hasher& /*h*/, const RenderContext& /*ctx*/) const {}
 
+    // --- user interface ---
+    // Where the node sits in a node graph editor, if it's been placed.
+    // Saved in project files; never affects rendering.
+    const std::optional<Vec2>& position() const { return position_; }
+    void setPosition(std::optional<Vec2> p) { position_ = p; }
+
 private:
     std::string name_;
     std::uint64_t id_;
     std::vector<Node*> inputs_;  // non-owning; the Graph owns nodes
-    std::map<std::string, ParamValue> params_;
+    std::shared_ptr<const ParamMap> params_;  // never null; replaced, never modified
+    std::optional<Vec2> position_;
 };
 
 }  // namespace comp

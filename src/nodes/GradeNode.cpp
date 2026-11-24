@@ -1,5 +1,7 @@
 #include "comp/nodes/GradeNode.h"
 
+#include "Specs.h"
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -62,6 +64,26 @@ Image GradeNode::compute(const RenderContext&, const Box& region,
         }
     }
     return out;
+}
+
+std::vector<ParamSpec> GradeNode::paramSpecs() const {
+    using namespace specs;
+    auto color = [](const char* name, double v, const char* hint, double min, double max) {
+        return make(name, Kind::Color, Color{v, v, v, v}, hint, min, max);
+    };
+    return {
+        color("blackpoint", 0, "Input value that maps to lift", -1, 1),
+        color("whitepoint", 1, "Input value that maps to gain", 0, 4),
+        color("lift", 0, "Output for the blackpoint", -1, 1),
+        color("gain", 1, "Output for the whitepoint", 0, 4),
+        color("multiply", 1, "Multiplies the result", 0, 4),
+        color("offset", 0, "Added to the result", -1, 1),
+        color("gamma", 1, "Applied last, to positive values", 0.2, 5),
+        choice("channels", {"rgb", "rgba"}, "rgb", "Channels to grade"),
+        make("black_clamp", Kind::Bool, true, "Clamp results below 0"),
+        make("white_clamp", Kind::Bool, false, "Clamp results above 1"),
+        make("mix", Kind::Double, 1.0, "Blend between input (0) and result (1)"),
+    };
 }
 
 }  // namespace comp

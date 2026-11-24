@@ -45,8 +45,8 @@ Key decisions:
 - [x] **Evaluation engine**: plan, info, region and compute passes; shared
   inputs computed once; images freed as soon as they're no longer needed.
 - [x] **Grade, Merge, Transform nodes**, with golden-image tests.
-- [x] **Command-line renderer** (`comp_render`): one Read into one Write over
-  a frame range.
+- [x] **Command-line renderer** (`comp_render`): runs a project's Write
+  nodes over a frame range, or converts one input to one output.
 - [x] **Tiles and threading**: 64×64 tiles on a fixed grid, built-in thread
   pool, `--threads` flag; output identical for any thread count or tile
   size.
@@ -56,34 +56,43 @@ Key decisions:
   parameters, rendering, Write execution, tile cache; images readable from
   numpy without copying. Optional in the build. Node types are created by
   name through a registry that project files will reuse.
+- [x] **Project files** (`.comp`, JSON): versioned, diff-friendly, strict
+  loading with errors that name the file and node; atomic saves. Saved and
+  loaded from C++, Python and `comp_render`.
+- [x] **Color management** (OpenColorIO 2.1+): one linear working space
+  (the config's `scene_linear` role); Read and Write convert in and out
+  (`colorspace`, default `auto`: float files linear, integer files sRGB);
+  ColorSpace node. Config from `$OCIO`, or comp's small built-in ACES config
+  with ACES studio-config names.
+- [x] **OpenFX plugin hosting** (OFX 1.4, Linux): plugins from
+  `$OFX_PLUGIN_PATH` and `/usr/OFX/Plugins` become `ofx:<id>` node types;
+  Filter and General contexts, float RGBA/Alpha, tiles, declared thread
+  safety, all common parameter types. Tested with comp's own test plugins
+  and the official OpenFX examples.
+- [x] **Render snapshots**: renders work from a frozen copy of the graph
+  (copy-on-write parameters, shared node ownership), so it can be edited
+  while renders run. Python releases the GIL during renders.
+- [x] **GUI, first milestone** (`comp_gui`, Qt 6 Widgets): node graph editor
+  (Tab to create, drag to connect, positions saved in projects), properties
+  panel built from each node type's parameter descriptions (OFX included),
+  viewer on its own render thread with the tile cache, OCIO display/view,
+  exposure, channels, pan/zoom and a pixel readout; open/save projects.
 
 ## Next
 
 In planned order. Items further down are less settled.
 
-### 1. Project files
-A versioned, diff-friendly text format (JSON or a simple custom format) for
-saving and loading graphs, built on the node registry. `comp_render` then
-loads a project and runs its Write nodes instead of wiring a single Read
-into a Write. Save and load from Python too.
+### 1. GUI, second milestone
+Undo/redo for every edit; a timeline with frame range and playback (with
+frames cached in the background); rendering Write nodes from the GUI with
+progress; node renaming, copy/paste and backdrops; viewer region of
+interest and proxy resolution for big plates; OFX overlays and custom
+parameter interacts.
 
-### 2. Color management (OpenColorIO)
-Input and output color spaces on Read and Write, plus a color-space
-conversion node.
-
-### 3. OpenFX plugin hosting
-Run existing OFX effects as nodes.
-
-### 4. Render snapshots
-Freeze the graph state when a render starts, so a GUI can edit parameters
-while renders run, and the Python bindings can release the GIL during
-renders. Separate a node's *definition* (type, parameter schema),
-its *instance* (user values) and the render-time *op* (a frozen, evaluable
-copy). Needed before the GUI.
-
-### 5. GUI
-Qt node graph, viewer and properties panels, built on the public API.
-Turns on the tile cache for interactive use.
+### 2. Generators and more nodes
+OFX generators (needs a format/frame-range setting per project), plus the
+built-in nodes a compositor can't do without: Blur, Crop, Reformat,
+Shuffle (channels), Premult/Unpremult, Constant, Roto.
 
 ### Later
 - Animation curves on parameters, sub-frame sampling for motion blur and
@@ -91,6 +100,8 @@ Turns on the tile cache for interactive use.
 - Deep compositing.
 - GPU backend behind the existing pixel-math interface.
 - Run independent branches of the graph at the same time.
+- Project-level settings in project files: frame range, default format,
+  OCIO config.
 - Nodes written in Python (needs GIL handling around compute()).
 - Install rules and a pip-installable package for the Python module.
 - Look at Natron (open source, OFX-based, modeled on Nuke) for ideas and
@@ -111,6 +122,25 @@ Smaller items already marked in the code:
   filter doesn't widen (`TransformNode.h`).
 - **Merge**: no row-wise fast paths; every read is bounds-checked
   (`MergeNode.cpp`).
+- **GUI**: no undo yet; the viewer renders the whole frame (plus overscan)
+  at full resolution on every change, relying on the tile cache; Choice
+  and Color parameters have no animation; no keyboard shortcuts editor.
+  ThreadSanitizer reports remain inside Qt's own event posting (Qt isn't
+  built with TSan); comp's data is race-free (`gui/`).
+- **OFX**: no generators (plugins without inputs), no animated parameters,
+  no access to other frames than the one rendering, render scale 1 only,
+  Linux bundles only. Plugins' own multithreading runs on one thread
+  (comp already renders tiles on every core). Parametric parameters
+  (curves) aren't hosted. Plugins are never unloaded (`src/ofx/`).
+- **Color**: Read and Write convert on one thread (only integer files, or
+  an explicit color space, need converting at all). Color is always treated
+  as premultiplied when there's an alpha channel; there's no switch for
+  straight-alpha images yet. The built-in config has no camera log spaces
+  (LogC, S-Log3, Log3G10...); studios with an ACES config get those via
+  `$OCIO` (`ColorConfig.cpp`).
+- **Project files**: relative paths in Read and Write resolve against the
+  working directory, not the project file's folder, so a project should be
+  rendered from the folder its paths assume (`Project.h`).
 - **Tile cache**: caches every node's tiles; may need a policy such as
   caching only expensive nodes or the viewer's output. Partial edge tiles
   are recomputed when the requested region shifts.

@@ -1,5 +1,7 @@
 #include "comp/nodes/MergeNode.h"
 
+#include "Specs.h"
+
 #include <algorithm>
 #include <cmath>
 #include <string_view>
@@ -120,6 +122,18 @@ Image MergeNode::compute(const RenderContext&, const Box& region,
         }
     }
     return out;
+}
+
+std::vector<ParamSpec> MergeNode::paramSpecs() const {
+    using namespace specs;
+    return {
+        choice("operation",
+               {"over", "under", "plus", "from", "minus", "multiply", "screen", "difference", "max", "min", "average",
+                "copy", "in", "out", "atop", "xor", "mask", "stencil"},
+               "over", "How A (input 1) combines with B (input 0)"),
+        choice("bbox", {"union", "intersection", "A", "B"}, "union", "Output data window"),
+        make("mix", Kind::Double, 1.0, "Blend between B (0) and the result (1)"),
+    };
 }
 
 }  // namespace comp

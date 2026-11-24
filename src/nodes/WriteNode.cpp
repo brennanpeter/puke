@@ -1,5 +1,9 @@
 #include "comp/nodes/WriteNode.h"
 
+#include "Specs.h"
+
+#include "comp/color/ColorConfig.h"
+
 #include <cmath>
 #include <filesystem>
 #include <memory>
@@ -46,7 +50,7 @@ std::string WriteNode::execute(Engine& engine, const RenderContext& ctx) const {
                   info.displayWindow.y0 + 1};
 
     // Render the input directly; going through this node would only add a copy.
-    const Image img = engine.render(requireInput(0), ctx, window);
+    Image img = engine.render(requireInput(0), ctx, window);
 
     OIIO::ImageSpec spec(window.width(), window.height(), img.numChannels(),
                          parseDataType(name(), param<std::string>("datatype", "half")));
@@ -79,8 +83,23 @@ std::string WriteNode::execute(Engine& engine, const RenderContext& ctx) const {
         throw Error(name() + ": format of '" + path + "' cannot store an offset data window");
     }
 
-    const bool ok = out->open(tmpPath, spec) &&
-                    out->write_image(OIIO::TypeDesc::FLOAT, img.data()) && out->close();
+    bool ok = out->open(tmpPath, spec);
+    if (ok) {
+        // Out of the working space. "auto" goes by the data type the format
+        // actually stores, which may differ from the one asked for.
+        std::string colorspace = param<std::string>("colorspace", "auto");
+        if (colorspace == "auto")
+            colorspace = out->spec().format.is_floating_point() ? "scene_linear" : "matte_paint";
+        try {
+            ColorConfig::current()->convert(img, "scene_linear", colorspace, info.dataWindow);
+        } catch (const Error& e) {
+            out->close();
+            std::error_code ec;
+            fs::remove(tmpPath, ec);
+            throw Error(name() + ": " + e.what());
+        }
+        ok = out->write_image(OIIO::TypeDesc::FLOAT, img.data()) && out->close();
+    }
     if (!ok) {
         std::string err = out->geterror();
         std::error_code ec;
@@ -96,6 +115,20 @@ std::string WriteNode::execute(Engine& engine, const RenderContext& ctx) const {
         throw Error(name() + ": cannot move finished file into place at '" + path + "': " + msg);
     }
     return path;
+}
+
+std::vector<ParamSpec> WriteNode::paramSpecs() const {
+    using namespace specs;
+    ParamSpec compression = optional(choice(
+        "compression", {"none", "zip", "zips", "piz", "rle", "pxr24", "b44", "b44a", "dwaa", "dwab"}, "",
+        "Passed to the file format (these are EXR's); empty: the format's default"));
+    compression.openChoice = true;
+    return {
+        make("file", Kind::File, std::string(), "Output path; frame tokens: #### %04d @@@"),
+        choice("datatype", {"float", "half", "uint8", "uint16"}, "half", "Data type in the file"),
+        compression,
+        colorSpace("colorspace", "auto", "Color space to write (auto: float files linear, integer files sRGB)", true),
+    };
 }
 
 }  // namespace comp

@@ -34,8 +34,10 @@ public:
     using Node::Node;
 
     const char* typeName() const override { return "Merge"; }
+    std::vector<ParamSpec> paramSpecs() const override;
     int maxInputs() const override { return 2; }
     bool inputOptional(int index) const override { return index == 1; }
+    std::string inputLabel(int index) const override { return index == 0 ? "B" : "A"; }
 
     ImageInfo computeInfo(const RenderContext& ctx,
                           std::span<const ImageInfo* const> inputs) const override;

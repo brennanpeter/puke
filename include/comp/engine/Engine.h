@@ -7,6 +7,7 @@
 
 namespace comp {
 
+class Snapshot;
 class ThreadPool;
 class TileCache;
 
@@ -66,8 +67,10 @@ std::vector<Box> tilesOf(const Box& region, int tileSize);
 // One Engine renders one thing at a time: don't call render() or info() on
 // the same Engine from several threads at once. Separate Engines are fine.
 //
+// Editing during renders: render() works from a Snapshot of the graph (see
+// Snapshot.h), taken on the editing thread.
+//
 // Planned next steps:
-//   - render from an immutable snapshot so a GUI can edit during renders
 //   - run independent branches of the graph at the same time
 class Engine {
 public:
@@ -84,8 +87,14 @@ public:
     void clearCache();
     std::size_t cacheBytesUsed() const;
 
+    // These take a Snapshot of `output` first, on the calling thread.
     ImageInfo info(const Node& output, const RenderContext& ctx);
     Image render(const Node& output, const RenderContext& ctx, const Box& region);
+
+    // Render a snapshot taken earlier, typically on another thread: the
+    // graph can be edited meanwhile without affecting the result.
+    ImageInfo info(const Snapshot& snapshot, const RenderContext& ctx);
+    Image render(const Snapshot& snapshot, const RenderContext& ctx, const Box& region);
 
     // Counters from the most recent render() call.
     const RenderStats& lastStats() const { return stats_; }

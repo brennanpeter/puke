@@ -422,16 +422,58 @@ static void testChain() {
     CHECK(e.lastStats().nodesComputed == 5);
 }
 
+// Every built-in node type describes its parameters, and the described
+// defaults are the real ones: setting each parameter to its default changes
+// nothing.
+static void testParamSpecs() {
+    for (const auto& type : std::vector<std::string>{"ColorSpace", "Grade", "Merge", "Transform"}) {
+        Graph g;
+        auto& src = g.create<SourceNode>("Src", Box{-2, -1, 20, 12}, ChannelList{"R", "G", "B", "A"},
+                                         [](int x, int y, int c) { return 0.05f * x + 0.03f * y + 0.1f * c; });
+        Node& plain = g.add(createNode(type, "Plain"));
+        Node& explicitDefaults = g.add(createNode(type, "Explicit"));
+        g.connect(src, plain, 0);
+        g.connect(src, explicitDefaults, 0);
+        if (type == "Merge") {
+            g.connect(src, plain, 1);
+            g.connect(src, explicitDefaults, 1);
+        }
+        const auto specs = plain.paramSpecs();
+        CHECK(!specs.empty());
+        for (const auto& s : specs) {
+            if (s.optional) continue;
+            CHECK(!s.name.empty() && !s.hint.empty());
+            if (s.kind == ParamSpec::Kind::Choice)
+                CHECK(s.openChoice || std::find(s.options.begin(), s.options.end(),
+                                                std::get<std::string>(s.defaultValue)) != s.options.end());
+            explicitDefaults.setParam(s.name, s.defaultValue);
+        }
+        Engine e;
+        const Box region{-4, -4, 24, 16};
+        const Image a = e.render(plain, {}, region), b = e.render(explicitDefaults, {}, region);
+        CHECK(std::equal(a.data(), a.data() + region.area() * a.numChannels(), b.data()));
+    }
+    // Read and Write: described, with a file parameter first.
+    for (const auto& type : {"Read", "Write"}) {
+        const auto specs = createNode(type, "X")->paramSpecs();
+        CHECK(!specs.empty() && specs[0].name == "file" && specs[0].kind == ParamSpec::Kind::File);
+    }
+}
+
 static void testRegistry() {
-    const auto types = nodeTypes();
-    CHECK((types == std::vector<std::string>{"Grade", "Merge", "Read", "Transform", "Write"}));
+    // Built-in types first, then any OFX plugins installed on this machine.
+    const std::vector<std::string> builtin{"ColorSpace", "Grade", "Merge", "Read", "Transform", "Write"};
+    const auto all = nodeTypes();
+    CHECK(all.size() >= builtin.size() && std::equal(builtin.begin(), builtin.end(), all.begin()));
+    for (std::size_t i = builtin.size(); i < all.size(); ++i) CHECK(all[i].rfind("ofx:", 0) == 0);
+    const auto& types = builtin;
     Graph g;
     for (const auto& t : types) {
         Node& n = g.add(createNode(t, t + "1"));
         CHECK(n.typeName() == t);
         CHECK(g.find(t + "1") == &n);
     }
-    CHECK_THROWS(createNode("Blur", "Blur1"), "unknown node type 'Blur' (known types: Grade, Merge");
+    CHECK_THROWS(createNode("Blur", "Blur1"), "unknown node type 'Blur' (built-in types: ColorSpace, Grade, Merge");
     CHECK_THROWS(g.add(createNode("Grade", "Grade1")), "a node named 'Grade1' already exists");
     CHECK_THROWS(g.add(nullptr), "cannot add a null node");
     CHECK(g.nodes().size() == types.size());
@@ -440,6 +482,7 @@ static void testRegistry() {
 int main() {
     try {
         testRegistry();
+        testParamSpecs();
         testGrade();
         testMergeOperations();
         testMergeChannelsAndBBox();

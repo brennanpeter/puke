@@ -31,6 +31,7 @@ public:
     using Node::Node;
 
     const char* typeName() const override { return "Grade"; }
+    std::vector<ParamSpec> paramSpecs() const override;
     int maxInputs() const override { return 1; }
 
     ImageInfo computeInfo(const RenderContext&, std::span<const ImageInfo* const> inputs) const override {

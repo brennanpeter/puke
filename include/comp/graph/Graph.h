@@ -35,13 +35,15 @@ public:
     // Nodes that use `node` as an input.
     std::vector<Node*> consumers(const Node& node) const;
 
-    const std::vector<std::unique_ptr<Node>>& nodes() const { return nodes_; }
+    // Nodes in the order they were added. Shared so a render's Snapshot can
+    // keep a node alive after it's removed from the graph.
+    const std::vector<std::shared_ptr<Node>>& nodes() const { return nodes_; }
 
 private:
     void checkNewName(const std::string& name) const;
     void requireOwned(const Node& node) const;
 
-    std::vector<std::unique_ptr<Node>> nodes_;
+    std::vector<std::shared_ptr<Node>> nodes_;
 };
 
 }  // namespace comp

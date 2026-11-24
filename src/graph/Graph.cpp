@@ -38,7 +38,7 @@ Node& Graph::add(std::unique_ptr<Node> node) {
     if (!node) throw Error("cannot add a null node");
     checkNewName(node->name());
     Node& ref = *node;
-    nodes_.push_back(std::move(node));
+    nodes_.push_back(std::shared_ptr<Node>(std::move(node)));
     return ref;
 }
 
@@ -77,6 +77,10 @@ void Graph::remove(Node& node) {
     for (const auto& n : nodes_)
         for (int i = 0; i < n->maxInputs(); ++i)
             if (n->input(i) == &node) n->setInput(i, nullptr);
+    // Its own inputs are cleared too: a render still holding it (through a
+    // Snapshot) has its own record of them, and nothing else should follow
+    // them from a node that's no longer in the graph.
+    for (int i = 0; i < node.maxInputs(); ++i) node.setInput(i, nullptr);
     std::erase_if(nodes_, [&](const auto& n) { return n.get() == &node; });
 }
 

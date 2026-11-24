@@ -1,5 +1,9 @@
 #include "comp/nodes/ReadNode.h"
 
+#include "Specs.h"
+
+#include "comp/color/ColorConfig.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -88,6 +92,7 @@ void ReadNode::appendHash(Hasher& h, const RenderContext& ctx) const {
     if (!ec) h.add(static_cast<std::uint64_t>(size));
     const auto mtime = std::filesystem::last_write_time(path, ec);
     if (!ec) h.add(static_cast<long long>(mtime.time_since_epoch().count()));
+    h.add(ColorConfig::current()->hash());
 }
 
 ImageInfo ReadNode::computeInfo(const RenderContext& ctx, std::span<const ImageInfo* const>) const {
@@ -135,7 +140,28 @@ Image ReadNode::compute(const RenderContext& ctx, const Box& region,
                            (static_cast<std::size_t>(y - rows.y0) * rows.width() + (want.x0 - rows.x0)) * nch;
         std::memcpy(out.pixel(want.x0, y), src, copyBytes);
     }
+
+    // Into the working space. "auto": float files are already there; integer
+    // files are display-referred, so sRGB.
+    std::string colorspace = param<std::string>("colorspace", "auto");
+    if (colorspace == "auto") colorspace = f.spec.format.is_floating_point() ? "scene_linear" : "matte_paint";
+    try {
+        ColorConfig::current()->convert(out, colorspace, "scene_linear", want);
+    } catch (const Error& e) {
+        throw Error(name() + ": " + e.what());
+    }
     return out;
+}
+
+std::vector<ParamSpec> ReadNode::paramSpecs() const {
+    using namespace specs;
+    return {
+        make("file", Kind::File, std::string(), "Image or sequence; frame tokens: #### %04d @@@"),
+        optional(make("first", Kind::Int, 1, "First frame of the sequence", 0, 2000)),
+        optional(make("last", Kind::Int, 1, "Last frame of the sequence", 0, 2000)),
+        choice("outside", {"hold", "black", "error"}, "hold", "Frames outside first..last"),
+        colorSpace("colorspace", "auto", "The file's color space (auto: float files linear, integer files sRGB)", true),
+    };
 }
 
 }  // namespace comp
