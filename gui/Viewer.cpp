@@ -94,6 +94,7 @@ void RenderWorker::run() {
         }
         ViewResult res;
         res.serial = req.serial;
+        res.frame = req.frame;
         QElapsedTimer timer;
         timer.start();
         try {
@@ -249,12 +250,6 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     bar->setContentsMargins(6, 4, 6, 0);
     title_ = new QLabel;
     title_->setObjectName("viewerTitle");
-    frame_ = new QSpinBox;
-    frame_->setObjectName("viewerFrame");
-    frame_->setRange(-100000, 100000);
-    frame_->setValue(1);
-    frame_->setPrefix("frame ");
-    frame_->setKeyboardTracking(false);
     display_ = new QComboBox;
     display_->setObjectName("viewerDisplay");
     view_ = new QComboBox;
@@ -272,7 +267,7 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     auto* fit = new QToolButton;
     fit->setText("Fit");
     bar->addWidget(title_, 1);
-    for (QWidget* w : std::initializer_list<QWidget*>{frame_, channel_, exposure_, display_, view_, fit}) bar->addWidget(w);
+    for (QWidget* w : std::initializer_list<QWidget*>{channel_, exposure_, display_, view_, fit}) bar->addWidget(w);
     layout->addLayout(bar);
     canvas_ = new ViewerCanvas;
     layout->addWidget(canvas_, 1);
@@ -292,7 +287,7 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     connect(view_, &QComboBox::currentTextChanged, this, &Viewer::requestRender);
     connect(exposure_, &QDoubleSpinBox::valueChanged, this, &Viewer::requestRender);
     connect(channel_, &QComboBox::currentIndexChanged, this, &Viewer::requestRender);
-    connect(frame_, &QSpinBox::valueChanged, this, &Viewer::requestRender);
+    connect(&doc_, &Document::frameChanged, this, &Viewer::showFrame);
     connect(fit, &QToolButton::clicked, canvas_, &ViewerCanvas::fit);
     connect(&doc_, &Document::renderNeeded, this, &Viewer::requestRender);
 
@@ -326,10 +321,29 @@ void Viewer::fillViews() {
 }
 
 void Viewer::requestRender() {
+    clearCache();
+    render();
+}
+
+void Viewer::showFrame() {
+    auto it = cache_.find(doc_.frame());
+    if (it == cache_.end() || !doc_.viewed()) {
+        render();
+        return;
+    }
+    ++serial_;  // drop anything still on its way
+    shown_ = serial_;
+    lru_.splice(lru_.end(), lru_, it->second.lru);
+    canvas_->setResult(it->second.result);
+    emit renderFinished(true);
+}
+
+void Viewer::render() {
     comp::Node* node = doc_.viewed();
     title_->setText(node ? QString("<b>%1</b>").arg(QString::fromStdString(node->name())) : QString());
     ++serial_;
     if (!node) {
+        shown_ = serial_;
         canvas_->setResult(ViewResult{});
         canvas_->setMessage("Nothing to view.\nSelect a node and press 1, or double-click it.");
         emit renderFinished(false);
@@ -345,7 +359,7 @@ void Viewer::requestRender() {
         deliver(std::move(r));
         return;
     }
-    req.frame = frame_->value();
+    req.frame = doc_.frame();
     req.display = display_->currentText().toStdString();
     req.view = view_->currentText().toStdString();
     req.exposure = exposure_->value();
@@ -365,8 +379,10 @@ void Viewer::takeReady() {
 
 void Viewer::deliver(ViewResult r) {
     if (r.serial != serial_) return;  // something newer is on its way
+    shown_ = serial_;
     const bool ok = r.error.isEmpty();
     if (ok) {
+        addToCache(r);
         canvas_->setResult(r);
     } else {
         ViewResult keep = canvas_->result();  // keep showing the last good picture under the error
@@ -374,6 +390,50 @@ void Viewer::deliver(ViewResult r) {
         canvas_->setResult(keep);
     }
     emit renderFinished(ok);
+}
+
+// --- frame cache
+
+std::vector<int> Viewer::cachedFrames() const {
+    std::vector<int> out;
+    for (const auto& [f, c] : cache_) out.push_back(f);
+    return out;
+}
+
+void Viewer::setCacheLimit(std::size_t bytes) {
+    cacheLimit_ = bytes;
+    clearCache();
+}
+
+void Viewer::clearCache() {
+    if (cache_.empty()) return;
+    cache_.clear();
+    lru_.clear();
+    cacheBytes_ = 0;
+    emit cacheChanged();
+}
+
+void Viewer::addToCache(const ViewResult& r) {
+    const int frame = static_cast<int>(r.frame);
+    std::size_t bytes = static_cast<std::size_t>(r.image.sizeInBytes());
+    if (r.working)
+        bytes += static_cast<std::size_t>(r.working->region().area()) * r.working->numChannels() * sizeof(float);
+    if (bytes > cacheLimit_) return;
+    if (auto it = cache_.find(frame); it != cache_.end()) {
+        cacheBytes_ -= it->second.bytes;
+        lru_.erase(it->second.lru);
+        cache_.erase(it);
+    }
+    while (cacheBytes_ + bytes > cacheLimit_ && !lru_.empty()) {  // make room: least recently shown go first
+        auto old = cache_.find(lru_.front());
+        cacheBytes_ -= old->second.bytes;
+        cache_.erase(old);
+        lru_.pop_front();
+    }
+    lru_.push_back(frame);
+    cache_[frame] = Cached{r, bytes, std::prev(lru_.end())};
+    cacheBytes_ += bytes;
+    emit cacheChanged();
 }
 
 }  // namespace compgui

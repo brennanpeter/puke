@@ -28,6 +28,7 @@ protected:
     void setParam(comp::Node& n, const std::string& k, const std::optional<comp::ParamValue>& v) { doc_.rawSetParam(n, k, v); }
     void move(comp::Node& n, const std::optional<comp::Vec2>& p) { doc_.rawMove(n, p); }
     void rename(comp::Node& n, const std::string& name) { doc_.rawRename(n, name); }
+    void setSettings(const comp::ProjectSettings& s) { doc_.rawSetSettings(s); }
     void select(comp::Node* n) { doc_.setSelected(n); }
     void view(comp::Node* n) { doc_.setViewed(n); }
     comp::Graph& graph() { return *doc_.graph_; }
@@ -191,6 +192,17 @@ private:
     std::string before_, after_;
 };
 
+class SetSettings : public DocCommand {
+public:
+    SetSettings(Document& doc, const comp::ProjectSettings& after)
+        : DocCommand(doc, "Project settings"), before_(doc.settings()), after_(after) {}
+    void redo() override { setSettings(after_); }
+    void undo() override { setSettings(before_); }
+
+private:
+    comp::ProjectSettings before_, after_;
+};
+
 }  // namespace
 
 // ================================================================ document
@@ -207,6 +219,12 @@ void Document::setSelected(comp::Node* node) {
     if (node == selected_) return;
     selected_ = node;
     emit selectionChanged();
+}
+
+void Document::setFrame(int frame) {
+    if (frame == frame_) return;
+    frame_ = frame;
+    emit frameChanged(frame);
 }
 
 void Document::setViewed(comp::Node* node) {
@@ -284,6 +302,11 @@ void Document::rawRename(comp::Node& node, const std::string& name) {
     graph_->rename(node, name);
     emit structureChanged();
     emit paramChanged(&node);  // panels showing its name
+}
+
+void Document::rawSetSettings(const comp::ProjectSettings& settings) {
+    graph_->setSettings(settings);
+    emit settingsChanged();
 }
 
 // --- edits
@@ -388,6 +411,13 @@ std::vector<comp::Node*> Document::pasteNodes(const std::string& text, QPointF o
     return out;
 }
 
+void Document::setSettings(const comp::ProjectSettings& settings) {
+    if (settings == graph_->settings()) return;
+    comp::Graph check;
+    check.setSettings(settings);  // throws if invalid, before anything is recorded
+    undo_.push(new SetSettings(*this, settings));
+}
+
 // --- files
 
 void Document::resetTo(std::unique_ptr<comp::Graph> graph, const QString& path, comp::Node* viewed) {
@@ -396,12 +426,15 @@ void Document::resetTo(std::unique_ptr<comp::Graph> graph, const QString& path, 
     viewed_ = viewed;
     graph_ = std::move(graph);
     path_ = path;
+    frame_ = graph_->settings().firstFrame;
     undo_.setClean();
     emit pathChanged();
     emit dirtyChanged(false);
     emit structureChanged();
     emit selectionChanged();
     emit viewedChanged();
+    emit settingsChanged();
+    emit frameChanged(frame_);
     emit renderNeeded();
 }
 

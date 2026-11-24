@@ -110,4 +110,12 @@ void Graph::rename(Node& node, const std::string& name) {
     node.setName(name);
 }
 
+void Graph::setSettings(const ProjectSettings& settings) {
+    if (settings.lastFrame < settings.firstFrame)
+        throw Error("the last frame (" + std::to_string(settings.lastFrame) + ") is before the first (" +
+                    std::to_string(settings.firstFrame) + ")");
+    if (!(settings.fps > 0 && settings.fps < 1000)) throw Error("fps must be between 0 and 1000");
+    settings_ = settings;
+}
+
 }  // namespace comp

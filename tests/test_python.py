@@ -422,6 +422,17 @@ class ProjectTests(TempDirTest):
         a, b = e.render(grade), e.render(back["Grade1"])
         self.assertEqual(bytes(memoryview(a)), bytes(memoryview(b)))
 
+    def test_frame_range_and_fps(self):
+        g = comp.Graph()
+        self.assertEqual((g.frame_range, g.fps), ((1, 1), 24.0))
+        g.frame_range = (1001, 1100)
+        g.fps = 25
+        back = comp.Graph.from_json(g.to_json())
+        self.assertEqual((back.frame_range, back.fps), ((1001, 1100), 25.0))
+        with self.assertRaisesRegex(comp.Error, "before the first"):
+            g.frame_range = (10, 5)
+        self.assertEqual(g.frame_range, (1001, 1100))
+
     def test_json_text(self):
         g = comp.Graph.from_json('{"format": "comp", "version": 1, "nodes": ['
                                  '{"name": "G", "type": "Grade", "params": {"mix": 0.5}}]}')

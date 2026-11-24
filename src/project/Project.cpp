@@ -150,7 +150,11 @@ Json nodesJson(const Graph& graph, Include include) {
 
 std::string projectToJson(const Graph& graph) {
     Json nodes = nodesJson(graph, [](const Node*) { return true; });
-    const Json doc{{"format", "comp"}, {"version", kProjectFormatVersion}, {"nodes", std::move(nodes)}};
+    Json doc{{"format", "comp"}, {"version", kProjectFormatVersion}};
+    const ProjectSettings& s = graph.settings();
+    if (s != ProjectSettings{})  // left out when default, like a node's position
+        doc["settings"] = Json{{"first_frame", s.firstFrame}, {"last_frame", s.lastFrame}, {"fps", s.fps}};
+    doc["nodes"] = std::move(nodes);
     return doc.dump(2) + "\n";
 }
 
@@ -170,7 +174,7 @@ Graph projectFromJson(const std::string& text, const std::string& source) {
 
     const Where top{source, {}};
     if (!doc.is_object()) top.fail("a project must be a JSON object");
-    checkKeys(top, doc, {"format", "version", "nodes"});
+    checkKeys(top, doc, {"format", "version", "settings", "nodes"});
     if (require(top, doc, "format", Json::value_t::string, "a string") != "comp")
         top.fail("not a comp project (format is '" + doc["format"].get<std::string>() + "')");
     const auto version = require(top, doc, "version", Json::value_t::number_integer, "a whole number").get<std::int64_t>();
@@ -180,8 +184,32 @@ Graph projectFromJson(const std::string& text, const std::string& source) {
     if (version < 1) top.fail("invalid format version " + std::to_string(version));
     const Json& nodes = require(top, doc, "nodes", Json::value_t::array, "a list");
 
-    // Create every node first, then connect, so nodes can appear in any order.
     Graph graph;
+    if (auto it = doc.find("settings"); it != doc.end()) {
+        const Where where{source, "settings"};
+        if (!it->is_object()) where.fail(std::string("must be an object, not ") + kindOf(*it));
+        checkKeys(where, *it, {"first_frame", "last_frame", "fps"});
+        ProjectSettings s;
+        auto frame = [&](const char* key, int& out) {
+            if (!it->contains(key)) return;
+            const auto v = require(where, *it, key, Json::value_t::number_integer, "a whole number").get<std::int64_t>();
+            if (v < -1000000 || v > 1000000) where.fail(std::string("'") + key + "' is out of range");
+            out = static_cast<int>(v);
+        };
+        frame("first_frame", s.firstFrame);
+        frame("last_frame", s.lastFrame);
+        if (it->contains("fps")) {
+            if (!(*it)["fps"].is_number()) where.fail("'fps' must be a number, not " + std::string(kindOf((*it)["fps"])));
+            s.fps = (*it)["fps"].get<double>();
+        }
+        try {
+            graph.setSettings(s);
+        } catch (const Error& e) {
+            where.fail(e.what());
+        }
+    }
+
+    // Create every node first, then connect, so nodes can appear in any order.
     std::vector<std::pair<Node*, const Json*>> pending;
     for (std::size_t i = 0; i < nodes.size(); ++i) {
         const Json& n = nodes[i];

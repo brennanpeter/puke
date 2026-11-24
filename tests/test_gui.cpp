@@ -15,6 +15,7 @@
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QSpinBox>
 #include <QToolButton>
 #include <QUndoStack>
 
@@ -28,6 +29,7 @@
 #include "NodeGraphView.h"
 #include "PropertiesPanel.h"
 #include "TestUtil.h"
+#include "Timeline.h"
 #include "Viewer.h"
 #include "comp/engine/Engine.h"
 #include "comp/project/Project.h"
@@ -92,6 +94,9 @@ int main(int argc, char** argv) {
     test::ExrOptions o;
     o.dataWindow = o.displayWindow = {0, 0, 160, 90};
     test::writeImage((dir / "plate.exr").string(), o, plate);
+    for (int f = 1001; f <= 1003; ++f)  // a short sequence: each frame a different flat value
+        test::writeImage((dir / ("seq." + std::to_string(f) + ".exr")).string(), o,
+                         [f](int, int, int c) { return c == 3 ? 1.0f : 0.1f * (f - 1000); });
 
     MainWindow w;
     w.resize(1400, 900);
@@ -348,6 +353,88 @@ int main(int argc, char** argv) {
 
             while (undo.canUndo()) undo.undo();
             CHECK(comp::projectToJson(doc.graph()) == saved);
+        }
+
+        // --- Frame range, the timeline, playback and the viewer's frame cache.
+        {
+            QUndoStack& undo = doc.undoStack();
+            Timeline& tl = w.timeline();
+            const int steps0 = undo.index();
+            comp::Node& seq = doc.createNode("Read", {400, 0});
+            doc.setParam(seq, "file", (dir / "seq.####.exr").string());
+            doc.setViewed(&seq);
+
+            // The range, through the timeline's fields: undoable project edits.
+            auto* first = find<QSpinBox>(tl, "timelineFirst");
+            auto* last = find<QSpinBox>(tl, "timelineLast");
+            CHECK(first && last);
+            last->setValue(1003);
+            first->setValue(1001);
+            CHECK((doc.settings() == comp::ProjectSettings{1001, 1003, 24}));
+            CHECK(undo.index() == steps0 + 4);
+            first->setValue(1005);  // past the last: the last follows
+            CHECK((doc.settings() == comp::ProjectSettings{1005, 1005, 24}));
+            undo.undo();
+            CHECK((doc.settings() == comp::ProjectSettings{1001, 1003, 24}) && first->value() == 1001);
+
+            tl.goToStart();
+            CHECK(doc.frame() == 1001 && find<QSpinBox>(tl, "timelineFrame")->value() == 1001);
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            CHECK(std::fabs(viewerPixel(viewer, 5, 5, 0) - 0.1f) < 1e-6f);
+
+            // Playback shows every frame in order, wrapping, and leaves them
+            // all cached.
+            std::vector<int> shown;
+            auto conn = QObject::connect(&doc, &Document::frameChanged, [&](int f) { shown.push_back(f); });
+            tl.play();
+            CHECK(tl.playing());
+            CHECK(waitFor([&] { return shown.size() >= 5; }));
+            tl.stop();
+            QObject::disconnect(conn);
+            CHECK(shown.size() >= 5 && shown[0] == 1002 && shown[1] == 1003 && shown[2] == 1001 && shown[3] == 1002);
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            CHECK((viewer.cachedFrames() == std::vector<int>{1001, 1002, 1003}));
+
+            // A cached frame shows at once, with its own pixels.
+            doc.setFrame(1003);
+            CHECK(!viewer.busy());
+            CHECK(std::fabs(viewerPixel(viewer, 5, 5, 0) - 0.3f) < 1e-6f);
+            tl.step(1);  // wraps
+            CHECK(doc.frame() == 1001 && !viewer.busy());
+            tl.step(-1);
+            CHECK(doc.frame() == 1003);
+
+            // Any edit empties the cache.
+            comp::Node& g = doc.createNode("Grade", {400, 90}, &seq);
+            doc.setViewed(&g);
+            CHECK(viewer.cachedFrames().empty());
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            CHECK((viewer.cachedFrames() == std::vector<int>{1003}));
+            doc.setParam(g, "multiply", 2.0);
+            CHECK(viewer.cachedFrames().empty());
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            CHECK(std::fabs(viewerPixel(viewer, 5, 5, 0) - 0.6f) < 1e-6f);
+
+            // A tiny cache limit keeps only the most recent frames.
+            viewer.setCacheLimit(2 * 160 * 90 * (4 + 4 * sizeof(float)) + 1000);  // about two frames
+            for (int f : {1001, 1002, 1003}) {
+                doc.setFrame(f);
+                CHECK(waitFor([&] { return !viewer.busy(); }));
+            }
+            CHECK((viewer.cachedFrames() == std::vector<int>{1002, 1003}));
+            viewer.setCacheLimit(std::size_t(1) << 30);
+
+            // Saved and loaded with the project; a loaded project starts at
+            // its first frame.
+            const QString path = QString::fromStdString((dir / "ranged.comp").string());
+            QString error;
+            CHECK(doc.save(path, &error));
+            doc.newDocument();
+            CHECK((doc.settings() == comp::ProjectSettings{}) && doc.frame() == 1);
+            CHECK(first->value() == 1 && last->value() == 1);
+            CHECK(w.openProject(path));
+            CHECK((doc.settings() == comp::ProjectSettings{1001, 1003, 24}) && doc.frame() == 1001);
+            CHECK(last->value() == 1003);
         }
 
         if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {

@@ -178,6 +178,16 @@ static void testProjects() {
     CHECK(r.exitCode == 0);
     CHECK(fs::exists(g_dir / "proj/proxy.1003.exr") && !fs::exists(g_dir / "proj/main.1003.exr"));
 
+    // Without --frames: the project's own range.
+    writeText("ranged.comp", R"({"format": "comp", "version": 1, "settings": {"first_frame": 1002, "last_frame": 1003},
+  "nodes": [
+    {"name": "Plate", "type": "Read", "params": {"file": "plate.####.exr", "first": 1001, "last": 1003}},
+    {"name": "W", "type": "Write", "inputs": ["Plate"], "params": {"file": "ranged/out.####.exr"}}]})");
+    r = run("ranged.comp");
+    CHECK(r.exitCode == 0);
+    CHECK(!fs::exists(g_dir / "ranged/out.1001.exr") && fs::exists(g_dir / "ranged/out.1002.exr") &&
+          fs::exists(g_dir / "ranged/out.1003.exr"));
+
     r = run("shot.comp --write Nope");
     CHECK(r.exitCode == 2 && r.output.find("shot.comp: no node named 'Nope'") != std::string::npos);
     r = run("shot.comp --write Grade1");

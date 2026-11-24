@@ -9,6 +9,15 @@
 
 namespace comp {
 
+// Settings for a whole project (saved with it).
+struct ProjectSettings {
+    int firstFrame = 1;  // the frame range comp_render and the GUI's timeline use
+    int lastFrame = 1;
+    double fps = 24;     // playback speed; nothing renders differently
+
+    bool operator==(const ProjectSettings&) const = default;
+};
+
 // Owns nodes and keeps their connections valid: unique names, in-range
 // inputs, no cycles. Holds no pixels; rendering is the Engine's job.
 class Graph {
@@ -45,6 +54,10 @@ public:
     // Renames a node. Throws if the name is empty or used by another node.
     void rename(Node& node, const std::string& name);
 
+    const ProjectSettings& settings() const { return settings_; }
+    // Throws if lastFrame < firstFrame or fps isn't positive.
+    void setSettings(const ProjectSettings& settings);
+
     // Nodes that use `node` as an input.
     std::vector<Node*> consumers(const Node& node) const;
 
@@ -57,6 +70,7 @@ private:
     void requireOwned(const Node& node) const;
 
     std::vector<std::shared_ptr<Node>> nodes_;
+    ProjectSettings settings_;
 };
 
 }  // namespace comp
