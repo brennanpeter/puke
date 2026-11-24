@@ -4,6 +4,8 @@
 #include <QWidget>
 
 #include <condition_variable>
+#include <list>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -34,6 +36,7 @@ struct ViewRequest {
 
 struct ViewResult {
     quint64 serial = 0;
+    double frame = 1;
     QImage image;                             // display-ready, covering `region`
     std::shared_ptr<const comp::Image> working;  // working-space pixels, for the readout
     comp::Box region, displayWindow;
@@ -94,8 +97,13 @@ private:
     QString readout_;
 };
 
-// The viewer panel: toolbar (frame, display, view, exposure, channels) and
-// canvas. Re-renders whenever the document says something changed.
+// The viewer panel: toolbar (display, view, exposure, channels) and canvas.
+// Shows the document's current frame of its viewed node, re-rendering
+// whenever the document says something changed.
+//
+// Frames it has shown are kept (up to a memory limit), so going back to
+// one, or playing a range a second time, is instant. Any edit or viewer
+// setting change empties this cache; changing frames doesn't.
 class Viewer : public QWidget {
     Q_OBJECT
 public:
@@ -103,26 +111,47 @@ public:
     ~Viewer() override;
     ViewerCanvas* canvas() const { return canvas_; }
 
+    // Waiting for a render of what should be on screen.
+    bool busy() const { return shown_ != serial_; }
+    bool isCached(int frame) const { return cache_.count(frame) > 0; }
+    std::vector<int> cachedFrames() const;
+    void setCacheLimit(std::size_t bytes);
+
 public slots:
+    // Something changed: forget cached frames and render the current one.
     void requestRender();
 
 signals:
     void renderFinished(bool ok);  // after each result is shown
+    void cacheChanged();
 
 private:
+    void showFrame();  // the document's frame changed
+    void render();
     void deliver(ViewResult r);
     void takeReady();  // on the GUI thread: picks up what the worker left
     void fillViews();
+    void clearCache();
+    void addToCache(const ViewResult& r);
 
     Document& doc_;
     ViewerCanvas* canvas_;
     QLabel* title_;
-    QSpinBox* frame_;
     QComboBox* display_;
     QComboBox* view_;
     QDoubleSpinBox* exposure_;
     QComboBox* channel_;
     quint64 serial_ = 0;
+    quint64 shown_ = 0;  // serial of what's on screen
+
+    struct Cached {
+        ViewResult result;
+        std::size_t bytes;
+        std::list<int>::iterator lru;
+    };
+    std::map<int, Cached> cache_;
+    std::list<int> lru_;  // least recently shown first
+    std::size_t cacheBytes_ = 0, cacheLimit_ = std::size_t(1) << 30;
     // The worker's newest result waits here for the GUI thread. A plain
     // mutex (not just Qt's event queue) guards the hand-over, so race
     // checkers can see it.

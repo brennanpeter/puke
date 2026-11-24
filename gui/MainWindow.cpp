@@ -8,6 +8,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSplitter>
+#include <QVBoxLayout>
 #include <QStatusBar>
 #include <QStyleFactory>
 #include <QApplication>
@@ -16,6 +17,7 @@
 #include "Document.h"
 #include "NodeGraphView.h"
 #include "PropertiesPanel.h"
+#include "Timeline.h"
 #include "Viewer.h"
 #include "comp/nodes/Registry.h"
 
@@ -49,8 +51,16 @@ MainWindow::MainWindow() {
     graph_ = new NodeGraphView(*doc_);
     properties_ = new PropertiesPanel(*doc_);
 
+    timeline_ = new Timeline(*doc_, *viewer_);
+    auto* top = new QWidget;
+    auto* topLayout = new QVBoxLayout(top);
+    topLayout->setContentsMargins(0, 0, 0, 0);
+    topLayout->setSpacing(0);
+    topLayout->addWidget(viewer_, 1);
+    topLayout->addWidget(timeline_);
+
     auto* split = new QSplitter(Qt::Vertical);
-    split->addWidget(viewer_);
+    split->addWidget(top);
     split->addWidget(graph_);
     split->setStretchFactor(0, 3);
     split->setStretchFactor(1, 2);
@@ -132,6 +142,21 @@ MainWindow::MainWindow() {
     });
     view->addAction("Fit viewer (F)", this, [this] { viewer_->canvas()->fit(); });
     view->addAction("Fit node graph", this, [this] { graph_->fitAll(); });
+    view->addSeparator();
+    // Frame keys act in the viewer and timeline (the node graph and
+    // properties keep their arrow keys).
+    auto frameAction = [&](const QString& text, const QKeySequence& key, auto fn) {
+        QAction* a = view->addAction(text, this, fn);
+        a->setShortcut(key);
+        a->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        top->addAction(a);
+        return a;
+    };
+    frameAction("&Play / stop", QKeySequence(Qt::Key_Space), [this] { timeline_->togglePlay(); });
+    frameAction("Previous frame", QKeySequence(Qt::Key_Left), [this] { timeline_->step(-1); });
+    frameAction("Next frame", QKeySequence(Qt::Key_Right), [this] { timeline_->step(1); });
+    frameAction("First frame", QKeySequence(Qt::Key_Home), [this] { timeline_->goToStart(); });
+    frameAction("Last frame", QKeySequence(Qt::Key_End), [this] { timeline_->goToEnd(); });
 
     connect(doc_, &Document::dirtyChanged, this, &MainWindow::updateTitle);
     connect(doc_, &Document::pathChanged, this, &MainWindow::updateTitle);

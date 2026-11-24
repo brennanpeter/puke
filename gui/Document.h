@@ -40,6 +40,12 @@ public:
     bool dirty() const { return !undo_.isClean(); }
     QUndoStack& undoStack() { return undo_; }
 
+    // The frame being viewed. Changing it isn't an edit (not undoable, doesn't
+    // make the document dirty).
+    int frame() const { return frame_; }
+    void setFrame(int frame);
+    const comp::ProjectSettings& settings() const { return graph_->settings(); }
+
     comp::Node* selected() const { return selected_; }
     comp::Node* viewed() const { return viewed_; }
     void setSelected(comp::Node* node);
@@ -66,6 +72,8 @@ public:
     void clearParam(comp::Node& node, const std::string& key);
     // Throws comp::Error if the name is empty or taken.
     void renameNode(comp::Node& node, const std::string& name);
+    // Frame range and fps. Throws comp::Error if they're invalid.
+    void setSettings(const comp::ProjectSettings& settings);
 
     // Copy and paste: nodes as project text (the .comp format), so they can
     // go through the clipboard, between windows or into a text editor.
@@ -95,6 +103,8 @@ signals:
     void dirtyChanged(bool dirty);
     void pathChanged();
     void renderNeeded();                   // what the viewer shows may have changed
+    void frameChanged(int frame);
+    void settingsChanged();
 
 private:
     friend class DocCommand;
@@ -107,6 +117,7 @@ private:
     void rawSetParam(comp::Node& node, const std::string& key, const std::optional<comp::ParamValue>& value);
     void rawMove(comp::Node& node, const std::optional<comp::Vec2>& position);
     void rawRename(comp::Node& node, const std::string& name);
+    void rawSetSettings(const comp::ProjectSettings& settings);
 
     std::string freeName(const std::string& type) const;
     void resetTo(std::unique_ptr<comp::Graph> graph, const QString& path, comp::Node* viewed);
@@ -116,6 +127,7 @@ private:
     QUndoStack undo_;
     comp::Node* selected_ = nullptr;
     comp::Node* viewed_ = nullptr;
+    int frame_ = 1;
 };
 
 }  // namespace compgui

@@ -135,6 +135,30 @@ static void testPositions() {
                  "p: node 1 (G): 'position' must be a list of 2 numbers");
 }
 
+static void testSettings() {
+    Graph g;
+    CHECK(projectToJson(g).find("settings") == std::string::npos);  // defaults: left out
+    g.setSettings({1001, 1100, 23.976});
+    const std::string text = projectToJson(g);
+    CHECK(text.find(R"("settings": {
+    "first_frame": 1001,
+    "last_frame": 1100,
+    "fps": 23.976
+  },)") != std::string::npos);
+    CHECK((projectFromJson(text).settings() == ProjectSettings{1001, 1100, 23.976}));
+    // Any key may be left out.
+    const std::string head = R"({"format": "comp", "version": 1, "nodes": [], "settings": )";
+    CHECK((projectFromJson(head + R"({"last_frame": 50}})").settings() == ProjectSettings{1, 50, 24}));
+    CHECK_THROWS(projectFromJson(head + R"({"first_frame": 10, "last_frame": 5}})", "p"),
+                 "p: settings: the last frame (5) is before the first (10)");
+    CHECK_THROWS(projectFromJson(head + R"({"fps": 0}})", "p"), "p: settings: fps must be");
+    CHECK_THROWS(projectFromJson(head + R"({"first_frame": 1.5}})", "p"), "'first_frame' must be a whole number");
+    CHECK_THROWS(projectFromJson(head + R"({"start": 1}})", "p"), "p: settings: unknown key 'start'");
+    CHECK_THROWS(projectFromJson(head + R"([1, 2]})", "p"), "p: settings: must be an object");
+    CHECK_THROWS(g.setSettings({5, 4, 24}), "before the first");
+    CHECK((g.settings() == ProjectSettings{1001, 1100, 23.976}));  // unchanged
+}
+
 static void testSomeNodes() {
     Graph g;
     auto& read = add(g, "Read", "Read1");
@@ -281,6 +305,7 @@ int main() {
         testLoadOrderAndOptionalFields();
         testPositions();
         testSomeNodes();
+        testSettings();
         testErrors();
         testFiles();
         testLoadedGraphRenders();

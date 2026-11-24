@@ -2,11 +2,13 @@
 //
 //   comp_render <project.comp> [--frames A-B] [--threads N] [--write NAME]...
 //       Loads a project and runs its Write nodes for each frame: all of
-//       them, in project order, or only those named with --write.
+//       them, in project order, or only those named with --write. Without
+//       --frames, renders the project's frame range.
 //
 //   comp_render <input> <output> [--frames A-B] [--threads N]
 //               [--datatype half|float|uint8|uint16] [--compression NAME]
-//       Quick conversion: wires a single Read into a single Write.
+//       Quick conversion: wires a single Read into a single Write (frame 1
+//       unless --frames is given).
 //
 // --threads 0 (the default) uses every core; --threads 1 renders on one thread.
 //
@@ -101,6 +103,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> positional;
     std::vector<std::string> onlyWrites;
     int first = 1, last = 1;
+    bool framesGiven = false;
     std::string datatype, compression;
     int threads = 0;
 
@@ -110,6 +113,7 @@ int main(int argc, char** argv) {
         if (arg.rfind("--", 0) != 0) {
             positional.push_back(arg);
         } else if (arg == "--frames" && hasValue) {
+            framesGiven = true;
             if (!parseRange(argv[++i], first, last)) {
                 std::fprintf(stderr, "invalid frame range: %s\n", argv[i]);
                 return 2;
@@ -144,6 +148,10 @@ int main(int argc, char** argv) {
         } catch (const comp::Error& e) {
             std::fprintf(stderr, "%s\n", e.what());
             return 2;
+        }
+        if (!framesGiven) {  // the project's own frame range
+            first = graph.settings().firstFrame;
+            last = graph.settings().lastFrame;
         }
 
         std::vector<const comp::WriteNode*> writes;

@@ -477,6 +477,23 @@ Color space names may also be OCIO roles ("scene_linear", "matte_paint").)")
         .def("save", [](const Graph& g, const std::filesystem::path& path) { comp::saveProject(g, path); },
              "path"_a, "Writes the graph as a project file. The file is replaced only once fully written.")
         .def("to_json", &comp::projectToJson, "The project file text for this graph.")
+        .def_property(
+            "frame_range", [](const Graph& g) { return std::make_pair(g.settings().firstFrame, g.settings().lastFrame); },
+            [](Graph& g, std::pair<int, int> r) {
+                comp::ProjectSettings s = g.settings();
+                s.firstFrame = r.first;
+                s.lastFrame = r.second;
+                g.setSettings(s);
+            },
+            "The project's (first, last) frame, inclusive. comp_render renders it by default.")
+        .def_property(
+            "fps", [](const Graph& g) { return g.settings().fps; },
+            [](Graph& g, double fps) {
+                comp::ProjectSettings s = g.settings();
+                s.fps = fps;
+                g.setSettings(s);
+            },
+            "Playback speed in frames per second.")
         .def(
             "create",
             [](const std::shared_ptr<Graph>& g, const std::string& type, std::optional<std::string> name,
