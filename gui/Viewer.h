@@ -16,6 +16,7 @@
 #include "comp/engine/Snapshot.h"
 
 class QComboBox;
+class QTimer;
 class QDoubleSpinBox;
 class QLabel;
 class QSpinBox;
@@ -31,6 +32,9 @@ struct ViewRequest {
     std::string display, view;
     double exposure = 0;  // stops
     int channel = 0;      // 0 RGB, 1 R, 2 G, 3 B, 4 A
+    // The part of the image on screen (pixel coordinates), if known: only
+    // that (plus a margin) is rendered.
+    std::optional<comp::Box> visible;
     quint64 serial = 0;
 };
 
@@ -39,7 +43,9 @@ struct ViewResult {
     double frame = 1;
     QImage image;                             // display-ready, covering `region`
     std::shared_ptr<const comp::Image> working;  // working-space pixels, for the readout
-    comp::Box region, displayWindow;
+    comp::Box region;      // what was rendered
+    comp::Box full;        // what would be rendered with all of it on screen
+    comp::Box displayWindow;
     QString error;
     double milliseconds = 0;
 };
@@ -65,6 +71,9 @@ private:
 };
 
 // Shows the latest result: pan, zoom, display window outline, pixel readout.
+// Only the part on screen is rendered (with a margin), so a big plate
+// viewed zoomed in costs what's visible; zooming and panning render what's
+// newly uncovered.
 class ViewerCanvas : public QWidget {
     Q_OBJECT
 public:
@@ -73,7 +82,15 @@ public:
     void setMessage(const QString& message);  // e.g. "nothing viewed", an error
     void fit();
     void oneToOne();
+    // Puts image pixel `p` in the middle of the canvas, keeping the zoom.
+    void centerOn(QPointF p);
     const ViewResult& result() const { return result_; }
+    // The image pixels on screen, once the image has been placed (after
+    // the first fit); before that, nothing is known.
+    std::optional<comp::Box> visibleRegion() const;
+
+signals:
+    void viewChanged();  // zoom, pan or size changed
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -92,6 +109,7 @@ private:
     double zoom_ = 1;
     QPointF offset_;  // widget position of pixel (0, 0)
     bool fitted_ = false;
+    bool placed_ = false;
     bool panning_ = false;
     QPoint lastMouse_;
     QString readout_;
@@ -127,6 +145,9 @@ signals:
 
 private:
     void showFrame();  // the document's frame changed
+    // What has to be rendered for `r` to fill the screen.
+    bool covers(const ViewResult& r) const;
+    void viewChanged();
     void render();
     void deliver(ViewResult r);
     void takeReady();  // on the GUI thread: picks up what the worker left
@@ -158,6 +179,7 @@ private:
     std::mutex readyMutex_;
     std::optional<ViewResult> ready_;
     std::unique_ptr<RenderWorker> worker_;
+    QTimer* roiTimer_;  // gathers zooming and panning into one render
 };
 
 }  // namespace compgui

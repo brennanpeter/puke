@@ -161,8 +161,8 @@ MainWindow::MainWindow() {
     frameAction("&Play / stop", QKeySequence(Qt::Key_Space), [this] { timeline_->togglePlay(); });
     frameAction("Previous frame", QKeySequence(Qt::Key_Left), [this] { timeline_->step(-1); });
     frameAction("Next frame", QKeySequence(Qt::Key_Right), [this] { timeline_->step(1); });
-    frameAction("First frame", QKeySequence(Qt::Key_Home), [this] { timeline_->goToStart(); });
-    frameAction("Last frame", QKeySequence(Qt::Key_End), [this] { timeline_->goToEnd(); });
+    view->addAction("First frame", this, [this] { timeline_->goToStart(); });  // Home is the viewer's 1:1
+    view->addAction("Last frame", this, [this] { timeline_->goToEnd(); });
 
     connect(doc_, &Document::dirtyChanged, this, &MainWindow::updateTitle);
     connect(doc_, &Document::pathChanged, this, &MainWindow::updateTitle);

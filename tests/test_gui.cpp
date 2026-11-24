@@ -56,6 +56,13 @@ bool waitFor(const std::function<bool()>& done, int ms = 10000) {
     return true;
 }
 
+// Runs the event loop for `ms`.
+void runEventsFor(int ms) {
+    QElapsedTimer t;
+    t.start();
+    while (t.elapsed() < ms) QApplication::processEvents(QEventLoop::AllEvents, 10);
+}
+
 // Waits for the viewer to show the result of everything asked so far.
 bool waitForRender(Viewer& viewer) {
     int count = 0;
@@ -527,6 +534,61 @@ int main(int argc, char** argv) {
             rd.startRender();
             CHECK(!rd.rendering() && log->toPlainText().contains("no Write nodes to render"));
             rd.close();
+        }
+
+        // --- The viewer renders only what's on screen.
+        {
+            test::ExrOptions big;
+            big.dataWindow = big.displayWindow = {0, 0, 1600, 900};
+            test::writeImage((dir / "big.exr").string(), big, plate);
+            comp::Node& r = doc.createNode("Read", {800, 0});
+            doc.setParam(r, "file", (dir / "big.exr").string());
+            ViewerCanvas* canvas = viewer.canvas();
+            doc.setViewed(&r);
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            const comp::Box full = canvas->result().full;
+            CHECK((full == comp::Box{0, 0, 1600, 900}));
+            canvas->fit();  // the whole frame on screen: all of it rendered
+            CHECK(waitFor([&] { return !viewer.busy() && canvas->result().region == full; }));
+
+            // Zooming in on a picture that's all there renders nothing new.
+            int renders = 0;
+            auto conn = QObject::connect(&viewer, &Viewer::renderFinished, [&](bool) { ++renders; });
+            canvas->oneToOne();
+            canvas->centerOn({800, 450});
+            runEventsFor(100);
+            CHECK(renders == 0);
+            // But the next render (an edit, another frame) does only what's
+            // on screen, plus a margin.
+            viewer.requestRender();
+            CHECK(waitFor([&] { return renders > 0 && !viewer.busy(); }));
+            auto visible = canvas->visibleRegion();
+            CHECK(visible && visible->width() < 1600);
+            const comp::Box region = canvas->result().region;
+            CHECK(region.area() < full.area() && visible->padded(200).intersect(region) == region);
+            CHECK(region.intersect(*visible) == visible->intersect(full));  // all of what's on screen
+            CHECK(std::fabs(viewerPixel(viewer, 800, 450, 1) - plate(800, 450, 1)) < 1e-6f);
+            CHECK(canvas->visibleRegion() == visible);  // and the view stayed where it was
+
+            // A small pan stays inside the margin: no new render.
+            const int before = renders;
+            canvas->centerOn({810, 452});
+            QApplication::processEvents();
+            runEventsFor(100);
+            CHECK(renders == before);
+            // A big one renders what's newly on screen.
+            canvas->centerOn({100, 100});
+            CHECK(waitFor([&] { return renders > before && !viewer.busy(); }));
+            visible = canvas->visibleRegion();
+            CHECK(canvas->result().region.intersect(*visible) == visible->intersect(full));
+            CHECK(std::fabs(viewerPixel(viewer, 50, 60, 0) - plate(50, 60, 0)) < 1e-6f);
+
+            // Cached frames that don't cover the screen are rendered again;
+            // fitting brings the whole frame back.
+            canvas->fit();
+            CHECK(waitFor([&] { return !viewer.busy() && canvas->result().region == full; }));
+            QObject::disconnect(conn);
+            doc.removeNode(r);
         }
 
         if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {
