@@ -469,8 +469,15 @@ class ProjectTests(TempDirTest):
             n.get("multiply")
         with self.assertRaisesRegex(comp.Error, "unknown interpolation 'cubic'"):
             n.set_key("multiply", 5, 1.0, "cubic")
+        # Tangents.
+        self.assertIsNone(n.slope("multiply", 11))
+        n.set_slope("multiply", 11, 0.5)
+        self.assertEqual(n.slope("multiply", 11), 0.5)
+        with self.assertRaisesRegex(comp.Error, "a slope needs 1 number"):
+            n.set_slope("multiply", 11, (1, 2))
         # Saved and loaded.
         back = comp.Graph.from_json(g.to_json())
+        self.assertEqual(back["G"].slope("multiply", 11), 0.5)
         self.assertEqual(back["G"].keys("multiply"), n.keys("multiply"))
         # Removing keys; the last one gone leaves it unset.
         self.assertTrue(n.remove_key("multiply", 1))

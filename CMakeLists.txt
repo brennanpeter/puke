@@ -114,6 +114,7 @@ if(COMP_GUI)
     if(Qt6_FOUND)
         set(CMAKE_AUTOMOC ON)
         add_library(comp_gui_lib STATIC
+            gui/CurveEditor.cpp
             gui/Document.cpp
             gui/MainWindow.cpp
             gui/NodeGraphView.cpp

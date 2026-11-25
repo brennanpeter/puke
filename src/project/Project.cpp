@@ -121,7 +121,8 @@ Curve curveFromJson(const Where& where, const std::string& key, const Json& j) {
     for (std::size_t i = 0; i < it->size(); ++i) {
         const Json& k = (*it)[i];
         const std::string which = "key " + std::to_string(i + 1);
-        if (!k.is_array() || k.size() < 2 || k.size() > 3) bad(which + " must be [frame, value] or [frame, value, interpolation]");
+        if (!k.is_array() || k.size() < 2 || k.size() > 4)
+            bad(which + " must be [frame, value], [frame, value, interpolation] or [frame, value, interpolation, slope]");
         if (!k[0].is_number() || !std::isfinite(k[0].get<double>())) bad(which + ": the frame must be a number");
         const double frame = k[0].get<double>();
         if (curve.keyAt(frame)) bad(which + ": a second key at frame " + k[0].dump());
@@ -137,6 +138,18 @@ Curve curveFromJson(const Where& where, const std::string& key, const Json& j) {
             }
         }
         curve.setKey(frame, value, interp);
+        if (k.size() == 4) {
+            std::vector<double> slope;
+            if (k[3].is_number()) slope.push_back(k[3].get<double>());
+            else if (k[3].is_array() && std::all_of(k[3].begin(), k[3].end(), [](const Json& e) { return e.is_number(); }))
+                for (const auto& e : k[3]) slope.push_back(e.get<double>());
+            else bad(which + ": the slope must be a number or a list of numbers");
+            try {
+                curve.setSlope(frame, std::move(slope));
+            } catch (const Error& e) {
+                bad(which + ": " + e.what());
+            }
+        }
     }
     return curve;
 }
@@ -173,7 +186,11 @@ Json nodesJson(const Graph& graph, Include include) {
                 if (k.frame == std::floor(k.frame) && std::abs(k.frame) < 1e9) entry.push_back(static_cast<long long>(k.frame));
                 else entry.push_back(k.frame);
                 entry.push_back(paramToJson(*node, key, k.value));
-                if (k.interp != Curve::Interp::Smooth) entry.push_back(Curve::interpName(k.interp));
+                if (k.interp != Curve::Interp::Smooth || !k.slope.empty()) entry.push_back(Curve::interpName(k.interp));
+                if (!k.slope.empty()) {  // the key's own tangent: a number, or one per component
+                    for (double d : k.slope) (void)paramToJson(*node, key, d);  // finite
+                    entry.push_back(k.slope.size() == 1 ? Json(k.slope[0]) : Json(k.slope));
+                }
                 keys.push_back(std::move(entry));
             }
             params[key] = Json{{"curve", std::move(keys)}};

@@ -2,10 +2,13 @@
 
 #include <QMainWindow>
 
+class QTabWidget;
+
 namespace compgui {
 
 class Document;
 class NodeGraphView;
+class CurveEditor;
 class PropertiesPanel;
 class RenderDialog;
 class Timeline;
@@ -28,6 +31,8 @@ public:
     NodeGraphView& graphView() { return *graph_; }
     PropertiesPanel& properties() { return *properties_; }
     Timeline& timeline() { return *timeline_; }
+    CurveEditor& curveEditor() { return *curves_; }
+    QTabWidget& bottomTabs() { return *tabs_; }
     RenderDialog& renderDialog() { return *render_; }
     void showRenderDialog();
 
@@ -47,6 +52,8 @@ private:
     NodeGraphView* graph_;
     PropertiesPanel* properties_;
     Timeline* timeline_;
+    CurveEditor* curves_;
+    QTabWidget* tabs_;
     RenderDialog* render_;
 };
 
