@@ -84,16 +84,19 @@ Key decisions:
   the frames the viewer has shown; rendering Write nodes in the background
   with progress, a log and cancel, while editing goes on; the viewer
   renders only what's on screen.
+- [x] **Project format**: a project width and height (saved in project
+  settings, set in Edit > Project Settings with common presets), carried
+  to every node in the render context and part of the cache key.
+  Constant, the first generator, makes it (or a size of its own).
 
 ## Next
 
 In planned order. Items further down are less settled.
 
 ### 1. Generators and more nodes
-OFX generators (the frame range is now a project setting; they still need
-a project format), plus the built-in nodes a compositor can't do without:
-Blur, Crop, Reformat, Shuffle (channels), Premult/Unpremult, Constant,
-Roto.
+OFX generators (the project format is now there for them), plus the
+built-in nodes a compositor can't do without: Blur, Crop, Reformat,
+Shuffle (channels), Premult/Unpremult, Roto.
 
 ### 2. GUI, third milestone
 Left over from the second, each needing groundwork first:
@@ -115,8 +118,9 @@ Left over from the second, each needing groundwork first:
 - Deep compositing.
 - GPU backend behind the existing pixel-math interface.
 - Run independent branches of the graph at the same time.
-- Project-level settings in project files: frame range, default format,
-  OCIO config.
+- An OCIO config per project (frame range and format are project
+  settings already). Pixel aspect ratio in formats (square pixels only
+  now).
 - Nodes written in Python (needs GIL handling around compute()).
 - Install rules and a pip-installable package for the Python module.
 - Look at Natron (open source, OFX-based, modeled on Nuke) for ideas and
@@ -137,9 +141,9 @@ Smaller items already marked in the code:
   filter doesn't widen (`TransformNode.h`).
 - **Merge**: no row-wise fast paths; every read is bounds-checked
   (`MergeNode.cpp`).
-- **GUI**: no undo yet; the viewer renders the whole frame (plus overscan)
-  at full resolution on every change, relying on the tile cache; Choice
-  and Color parameters have no animation; no keyboard shortcuts editor.
+- **GUI**: there's no keyboard shortcuts editor, and no animation on any
+  parameter yet. The frame cache is emptied by any edit, even one that
+  doesn't affect the viewed node.
   ThreadSanitizer reports remain inside Qt's own event posting (Qt isn't
   built with TSan); comp's data is race-free (`gui/`).
 - **OFX**: no generators (plugins without inputs), no animated parameters,

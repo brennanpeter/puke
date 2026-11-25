@@ -143,9 +143,15 @@ static void testSettings() {
     CHECK(text.find(R"("settings": {
     "first_frame": 1001,
     "last_frame": 1100,
-    "fps": 23.976
+    "fps": 23.976,
+    "format": {
+      "width": 1920,
+      "height": 1080
+    }
   },)") != std::string::npos);
     CHECK((projectFromJson(text).settings() == ProjectSettings{1001, 1100, 23.976}));
+    g.setSettings({1, 1, 24, {2048, 858}});  // only the format differs from the defaults: still written
+    CHECK((projectFromJson(projectToJson(g)).settings().format == Format{2048, 858}));
     // Any key may be left out.
     const std::string head = R"({"format": "comp", "version": 1, "nodes": [], "settings": )";
     CHECK((projectFromJson(head + R"({"last_frame": 50}})").settings() == ProjectSettings{1, 50, 24}));
@@ -154,9 +160,15 @@ static void testSettings() {
     CHECK_THROWS(projectFromJson(head + R"({"fps": 0}})", "p"), "p: settings: fps must be");
     CHECK_THROWS(projectFromJson(head + R"({"first_frame": 1.5}})", "p"), "'first_frame' must be a whole number");
     CHECK_THROWS(projectFromJson(head + R"({"start": 1}})", "p"), "p: settings: unknown key 'start'");
+    CHECK((projectFromJson(head + R"({"format": {"height": 720}}})").settings().format == Format{1920, 720}));
+    CHECK_THROWS(projectFromJson(head + R"({"format": {"width": 0}}})", "p"), "p: settings: format: 'width' must be 1 to 65536");
+    CHECK_THROWS(projectFromJson(head + R"({"format": {"width": 12.5}}})", "p"), "'width' must be a whole number");
+    CHECK_THROWS(projectFromJson(head + R"({"format": {"depth": 3}}})", "p"), "p: settings: format: unknown key 'depth'");
+    CHECK_THROWS(projectFromJson(head + R"({"format": "HD"}})", "p"), "p: settings: format: must be an object");
+    CHECK_THROWS(g.setSettings({1, 1, 24, {1920, 70000}}), "the format (1920x70000) must be 1 to 65536 pixels each way");
     CHECK_THROWS(projectFromJson(head + R"([1, 2]})", "p"), "p: settings: must be an object");
     CHECK_THROWS(g.setSettings({5, 4, 24}), "before the first");
-    CHECK((g.settings() == ProjectSettings{1001, 1100, 23.976}));  // unchanged
+    CHECK((g.settings() == ProjectSettings{1, 1, 24, {2048, 858}}));  // unchanged
 }
 
 static void testSomeNodes() {

@@ -13,6 +13,7 @@
 
 #include "comp/core/Box.h"
 #include "comp/core/Hash.h"
+#include "comp/core/Format.h"
 #include "comp/core/Image.h"
 
 namespace comp {
@@ -25,6 +26,9 @@ struct Error : std::runtime_error {
 // Time is a double so retiming and motion blur can sample sub-frames later.
 struct RenderContext {
     double frame = 1.0;
+    // The project's format: what generators (nodes with nothing to read
+    // their size from) produce. Callers fill it from Graph::settings().
+    Format format;
 };
 
 using Vec2 = std::array<double, 2>;   // x, y

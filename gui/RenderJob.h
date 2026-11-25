@@ -11,6 +11,8 @@
 #include <thread>
 #include <vector>
 
+#include "comp/core/Format.h"
+
 namespace comp {
 class Snapshot;
 class WriteNode;
@@ -32,7 +34,8 @@ class RenderJob : public QObject {
 public:
     // Snapshots the Writes here, on the editing thread. Throws comp::Error if
     // one can't be rendered (e.g. an unconnected input) or last < first.
-    RenderJob(const std::vector<comp::WriteNode*>& writes, int first, int last, QObject* parent = nullptr);
+    RenderJob(const std::vector<comp::WriteNode*>& writes, int first, int last, const comp::Format& format,
+              QObject* parent = nullptr);
     ~RenderJob() override;
 
     void start();
@@ -66,6 +69,7 @@ private:
 
     std::vector<Task> tasks_;
     int first_, last_, total_;
+    comp::Format format_;
     int failures_ = 0;
     bool running_ = false;
     std::atomic<bool> cancel_{false};

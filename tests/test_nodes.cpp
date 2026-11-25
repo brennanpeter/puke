@@ -501,9 +501,45 @@ static void testBackdrop() {
     CHECK(e.render(b, RenderContext{}, Box{0, 0, 4, 4}).channels().empty());
 }
 
+static void testConstant() {
+    Graph g;
+    Node& c = g.add(createNode("Constant", "Constant1"));
+    c.setParam("color", Color{0.25, 0.5, 1.0, 1.0});
+    CHECK(c.maxInputs() == 0);
+
+    // The project's format, from the render.
+    Engine e({.threads = 4, .tileSize = 64, .cacheBytes = 64 << 20});
+    RenderContext hd{1, Format{1920, 1080}}, small{1, Format{100, 50}};
+    ImageInfo info = e.info(c, hd);
+    CHECK((info.displayWindow == Box{0, 0, 1920, 1080}) && info.dataWindow == info.displayWindow);
+    CHECK((info.channels == ChannelList{"R", "G", "B", "A"}));
+    Image img = e.render(c, small, e.info(c, small).dataWindow);
+    CHECK((img.region() == Box{0, 0, 100, 50}));
+    for (int y : {0, 49})
+        for (int x : {0, 63, 64, 99}) {  // across tile edges
+            const float* p = img.pixel(x, y);
+            CHECK(p[0] == 0.25f && p[1] == 0.5f && p[2] == 1.0f && p[3] == 1.0f);
+        }
+    // The format is part of the cache key: same node, same parameters,
+    // different format, different result.
+    CHECK((e.render(c, hd, {0, 0, 8, 8}).region() == Box{0, 0, 8, 8}));
+    CHECK((e.info(c, small).displayWindow == Box{0, 0, 100, 50}));
+
+    // A size of its own.
+    c.setParam("format", std::string("custom"));
+    c.setParam("size", Vec2{640, 480});
+    CHECK((e.info(c, hd).displayWindow == Box{0, 0, 640, 480}));
+    c.setParam("size", Vec2{640.5, 480});
+    CHECK_THROWS(e.info(c, hd), "Constant1: size must be whole numbers from 1 to 65536");
+    c.setParam("size", Vec2{0, 480});
+    CHECK_THROWS(e.info(c, hd), "Constant1: size must be whole numbers");
+    c.setParam("format", std::string("HD"));
+    CHECK_THROWS(e.info(c, hd), "Constant1: unknown format 'HD' (use project or custom)");
+}
+
 static void testRegistry() {
     // Built-in types first, then any OFX plugins installed on this machine.
-    const std::vector<std::string> builtin{"Backdrop", "ColorSpace", "Grade", "Merge", "Read", "Transform", "Write"};
+    const std::vector<std::string> builtin{"Backdrop", "ColorSpace", "Constant", "Grade", "Merge", "Read", "Transform", "Write"};
     const auto all = nodeTypes();
     CHECK(all.size() >= builtin.size() && std::equal(builtin.begin(), builtin.end(), all.begin()));
     for (std::size_t i = builtin.size(); i < all.size(); ++i) CHECK(all[i].rfind("ofx:", 0) == 0);
@@ -514,7 +550,7 @@ static void testRegistry() {
         CHECK(n.typeName() == t);
         CHECK(g.find(t + "1") == &n);
     }
-    CHECK_THROWS(createNode("Blur", "Blur1"), "unknown node type 'Blur' (built-in types: Backdrop, ColorSpace, Grade, Merge");
+    CHECK_THROWS(createNode("Blur", "Blur1"), "unknown node type 'Blur' (built-in types: Backdrop, ColorSpace, Constant, Grade, Merge");
     CHECK_THROWS(g.add(createNode("Grade", "Grade1")), "a node named 'Grade1' already exists");
     CHECK_THROWS(g.add(nullptr), "cannot add a null node");
     CHECK(g.nodes().size() == types.size());
@@ -524,6 +560,7 @@ int main() {
     try {
         testRegistry();
         testBackdrop();
+        testConstant();
         testTakeInsertRename();
         testParamSpecs();
         testGrade();

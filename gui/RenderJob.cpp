@@ -6,8 +6,9 @@
 
 namespace compgui {
 
-RenderJob::RenderJob(const std::vector<comp::WriteNode*>& writes, int first, int last, QObject* parent)
-    : QObject(parent), first_(first), last_(last) {
+RenderJob::RenderJob(const std::vector<comp::WriteNode*>& writes, int first, int last, const comp::Format& format,
+                     QObject* parent)
+    : QObject(parent), first_(first), last_(last), format_(format) {
     if (last < first) throw comp::Error("the last frame is before the first");
     if (writes.empty()) throw comp::Error("no Write nodes to render");
     for (comp::WriteNode* w : writes)
@@ -38,7 +39,7 @@ void RenderJob::run() {
             Event e;
             const QString prefix = QString("frame %1 %2").arg(f).arg(QString::fromStdString(t.name));
             try {
-                const std::string path = t.write->execute(engine, *t.snapshot, {static_cast<double>(f)});
+                const std::string path = t.write->execute(engine, *t.snapshot, {static_cast<double>(f), format_});
                 e.message = prefix + " -> " + QString::fromStdString(path);
             } catch (const std::exception& ex) {
                 e.message = prefix + " failed: " + QString::fromStdString(ex.what());

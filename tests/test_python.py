@@ -58,8 +58,8 @@ class TempDirTest(unittest.TestCase):
 class GraphTests(unittest.TestCase):
     def test_node_types(self):
         types = comp.node_types()
-        self.assertEqual(types[:7], ["Backdrop", "ColorSpace", "Grade", "Merge", "Read", "Transform", "Write"])
-        self.assertTrue(all(t.startswith("ofx:") for t in types[7:]))
+        self.assertEqual(types[:8], ["Backdrop", "ColorSpace", "Constant", "Grade", "Merge", "Read", "Transform", "Write"])
+        self.assertTrue(all(t.startswith("ofx:") for t in types[8:]))
 
     def test_create_names_and_params(self):
         g = comp.Graph()
@@ -432,6 +432,21 @@ class ProjectTests(TempDirTest):
         with self.assertRaisesRegex(comp.Error, "before the first"):
             g.frame_range = (10, 5)
         self.assertEqual(g.frame_range, (1001, 1100))
+
+    def test_format(self):
+        # Renders use the node's graph's project format.
+        g = comp.Graph()
+        self.assertEqual(g.format, (1920, 1080))
+        c = g.create("Constant", "C")
+        c["color"] = (0.5, 0.5, 0.5, 1)
+        g.format = (64, 32)
+        e = comp.Engine()
+        self.assertEqual(e.info(c).display_window, comp.Box(0, 0, 64, 32))
+        img = e.render(c)
+        self.assertEqual(img.region, comp.Box(0, 0, 64, 32))
+        self.assertEqual(comp.Graph.from_json(g.to_json()).format, (64, 32))
+        with self.assertRaisesRegex(comp.Error, "the format \\(0x32\\) must be"):
+            g.format = (0, 32)
 
     def test_json_text(self):
         g = comp.Graph.from_json('{"format": "comp", "version": 1, "nodes": ['

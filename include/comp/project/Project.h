@@ -32,6 +32,18 @@ namespace comp {
 // A node may also have "position": [x, y], where a node graph editor placed
 // it (whole pixels).
 //
+// The project's settings (Graph::settings()) go in an optional top-level
+// object, left out when they're all default; any key in it may be left out:
+//
+//   "settings": {
+//     "first_frame": 1001, "last_frame": 1100,     (default 1 and 1)
+//     "fps": 24,                                   (default 24)
+//     "format": {"width": 1920, "height": 1080}    (the project format;
+//   }                                               default 1920x1080)
+//
+// (Not to be confused with the top-level "format": "comp", which says what
+// kind of file this is.)
+//
 // Written to diff well: two-space indent, nodes in graph order, parameters
 // sorted by name. "inputs" lists the node feeding each input by name, null
 // for an unconnected input, with trailing nulls left off.

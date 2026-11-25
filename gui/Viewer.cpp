@@ -99,7 +99,7 @@ void RenderWorker::run() {
         QElapsedTimer timer;
         timer.start();
         try {
-            const comp::RenderContext ctx{req.frame};
+            const comp::RenderContext ctx{req.frame, req.format};
             const comp::ImageInfo info = engine.info(*req.snapshot, ctx);
             res.displayWindow = info.displayWindow;
             // The frame, plus whatever overscan exists around it (up to a
@@ -317,6 +317,10 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     connect(exposure_, &QDoubleSpinBox::valueChanged, this, &Viewer::requestRender);
     connect(channel_, &QComboBox::currentIndexChanged, this, &Viewer::requestRender);
     connect(&doc_, &Document::frameChanged, this, &Viewer::showFrame);
+    // A new project format changes what generators make; range and fps don't.
+    connect(&doc_, &Document::settingsChanged, this, [this] {
+        if (doc_.settings().format != format_) requestRender();
+    });
     roiTimer_ = new QTimer(this);
     roiTimer_->setSingleShot(true);
     roiTimer_->setInterval(30);
@@ -408,6 +412,7 @@ void Viewer::render() {
         return;
     }
     req.frame = doc_.frame();
+    req.format = format_ = doc_.settings().format;
     req.visible = canvas_->visibleRegion();
     req.display = display_->currentText().toStdString();
     req.view = view_->currentText().toStdString();

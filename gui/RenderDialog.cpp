@@ -103,7 +103,7 @@ void RenderDialog::startRender() {
     }
     log_->clear();
     try {
-        job_ = std::make_unique<RenderJob>(writes, first_->value(), last_->value());
+        job_ = std::make_unique<RenderJob>(writes, first_->value(), last_->value(), doc_.settings().format);
     } catch (const comp::Error& e) {
         job_.reset();
         status_->setText("Can't render: " + QString::fromStdString(e.what()));

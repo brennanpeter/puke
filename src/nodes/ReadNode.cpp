@@ -73,7 +73,8 @@ ImageInfo ReadNode::fileInfo(const RenderContext& ctx) const {
     auto path = resolvePath(ctx);
     if (path.empty()) {
         // Black frame outside the range: borrow the format from the first frame.
-        RenderContext firstCtx{static_cast<double>(param<int>("first"))};
+        RenderContext firstCtx = ctx;
+        firstCtx.frame = param<int>("first");
         auto info = infoFromSpec(openFile(name(), resolvePath(firstCtx)).spec);
         info.dataWindow = {};
         return info;

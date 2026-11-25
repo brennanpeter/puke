@@ -66,15 +66,15 @@ bool parseCount(const std::string& s, int& n) {
 
 // Runs `writes` for every frame, printing each file written. Returns the
 // number of failed (frame, Write) pairs; a failure doesn't stop the others.
-int renderFrames(const std::vector<const comp::WriteNode*>& writes, int first, int last, int threads,
-                 bool showNames) {
+int renderFrames(const std::vector<const comp::WriteNode*>& writes, int first, int last, const comp::Format& format,
+                 int threads, bool showNames) {
     comp::Engine engine(comp::EngineOptions{.threads = threads});
     int failures = 0;
     for (int f = first; f <= last; ++f) {
         for (const comp::WriteNode* write : writes) {
             const std::string label = showNames ? " " + write->name() : "";
             try {
-                const std::string written = write->execute(engine, {static_cast<double>(f)});
+                const std::string written = write->execute(engine, {static_cast<double>(f), format});
                 std::printf("frame %d%s -> %s\n", f, label.c_str(), written.c_str());
             } catch (const comp::Error& e) {
                 std::fprintf(stderr, "frame %d%s failed: %s\n", f, label.c_str(), e.what());
@@ -176,7 +176,8 @@ int main(int argc, char** argv) {
             }
         }
         if (!checkFrameTokens(writes, first, last)) return 2;
-        return renderFrames(writes, first, last, threads, true) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+        return renderFrames(writes, first, last, graph.settings().format, threads, true) == 0 ? EXIT_SUCCESS
+                                                                                            : EXIT_FAILURE;
     }
 
     // --- quick conversion: Read -> Write ---
@@ -202,5 +203,5 @@ int main(int argc, char** argv) {
     graph.connect(read, write, 0);
 
     if (!checkFrameTokens({&write}, first, last)) return 2;
-    return renderFrames({&write}, first, last, threads, false) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return renderFrames({&write}, first, last, comp::Format{}, threads, false) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
