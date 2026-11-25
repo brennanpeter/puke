@@ -361,17 +361,54 @@ OfxStatus coordsMain(const char* action, const void* handle, OfxPropertySetHandl
     return kOfxStatReplyDefault;
 }
 
-// ================================================================ ones comp should refuse
+// ================================================================ Generator
+// No inputs. Each pixel: (red of the color param, OFX x, OFX y, project
+// height), so tests can check the coordinates and the project size. Offers
+// General too, to check comp picks Generator.
 
-OfxStatus generatorMain(const char* action, const void* handle, OfxPropertySetHandle, OfxPropertySetHandle) {
+OfxStatus generatorMain(const char* action, const void* handle, OfxPropertySetHandle in, OfxPropertySetHandle) {
     auto e = static_cast<OfxImageEffectHandle>(const_cast<void*>(handle));
     if (!std::strcmp(action, kOfxActionDescribe)) {
         describeCommon(e, "Test Generator", kOfxImageEffectContextGeneral, kOfxBitDepthFloat,
                        kOfxImageEffectRenderFullySafe, 1);
+        gProp->propSetString(effectProps(e), kOfxImageEffectPropSupportedContexts, 1, kOfxImageEffectContextGenerator);
         return kOfxStatOK;
     }
     if (!std::strcmp(action, kOfxImageEffectActionDescribeInContext)) {
+        char* context;
+        gProp->propGetString(in, kOfxImageEffectPropContext, 0, &context);
+        if (std::strcmp(context, kOfxImageEffectContextGenerator)) return fail(e, "expected the Generator context");
         defineClip(e, kOfxImageEffectOutputClipName, kOfxImageComponentRGBA);
+        OfxPropertySetHandle p = defineParam(e, kOfxParamTypeRGBA, "color");
+        for (int i = 0; i < 4; ++i) gProp->propSetDouble(p, kOfxParamPropDefault, i, 0.5);
+        return kOfxStatOK;
+    }
+    if (!std::strcmp(action, kOfxImageEffectActionRender)) {
+        OfxTime t;
+        OfxRectI w;
+        renderArgs(in, t, w);
+        double rgba[4], size[2];
+        gParam->paramGetValueAtTime(param(e, "color"), t, &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
+        gProp->propGetDoubleN(effectProps(e), kOfxImageEffectPropProjectSize, 2, size);
+        Img dst;
+        if (!dst.fetch(e, kOfxImageEffectOutputClipName, t)) return fail(e, "no output image");
+        for (int y = w.y1; y < w.y2; ++y)
+            for (int x = w.x1; x < w.x2; ++x) {
+                float* d = dst.at(x, y);
+                d[0] = float(rgba[0]), d[1] = float(x), d[2] = float(y), d[3] = float(size[1]);
+            }
+        return kOfxStatOK;
+    }
+    return kOfxStatReplyDefault;
+}
+
+// ================================================================ ones comp should refuse
+
+OfxStatus transitionMain(const char* action, const void* handle, OfxPropertySetHandle, OfxPropertySetHandle) {
+    auto e = static_cast<OfxImageEffectHandle>(const_cast<void*>(handle));
+    if (!std::strcmp(action, kOfxActionDescribe)) {
+        describeCommon(e, "Test Transition", kOfxImageEffectContextTransition, kOfxBitDepthFloat,
+                       kOfxImageEffectRenderFullySafe, 1);
         return kOfxStatOK;
     }
     return kOfxStatReplyDefault;
@@ -394,6 +431,7 @@ OfxPlugin plugins[] = {
     {kOfxImageEffectPluginApi, 1, "org.comp.test.Coords", 1, 0, setHost, coordsMain},
     {kOfxImageEffectPluginApi, 1, "org.comp.test.Generator", 1, 0, setHost, generatorMain},
     {kOfxImageEffectPluginApi, 1, "org.comp.test.ByteOnly", 1, 0, setHost, byteOnlyMain},
+    {kOfxImageEffectPluginApi, 1, "org.comp.test.Transition", 1, 0, setHost, transitionMain},
 };
 
 }  // namespace

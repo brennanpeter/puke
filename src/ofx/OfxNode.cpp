@@ -192,8 +192,9 @@ ImageInfo OfxNode::computeInfo(const RenderContext& ctx, std::span<const ImageIn
         fi.connected.push_back(in != nullptr);
         if (in && !first) first = in;
     }
-    if (!first) throw Error(who() + ": needs at least one input connected");
-    const Box display = first->displayWindow;
+    // A filter's frame is its input's; with no input connected (a
+    // generator), the project's format.
+    const Box display = first ? first->displayWindow : ctx.format.box();
     fi.flipY = display.y0 + display.y1;
 
     std::lock_guard lock(actionMutex_);
@@ -201,7 +202,7 @@ ImageInfo OfxNode::computeInfo(const RenderContext& ctx, std::span<const ImageIn
     if (plugin_.contextDescriptor->getString(kOfxImageEffectPluginRenderThreadSafety) == kOfxImageEffectRenderUnsafe)
         unsafe.lock();
 
-    // The project is the input's frame, in OFX coordinates.
+    // The project is that frame, in OFX coordinates.
     Effect& e = *instance_;
     const OfxRectI project = toOfx(display, fi.flipY);
     e.setDoubles(kOfxImageEffectPropProjectOffset, {double(project.x1), double(project.y1)});
@@ -215,11 +216,12 @@ ImageInfo OfxNode::computeInfo(const RenderContext& ctx, std::span<const ImageIn
     }
 
     // Default region of definition: the Source's for filters, the union of
-    // the connected inputs' otherwise.
+    // the connected inputs' otherwise, the project's frame with none.
     Box defaultRod;
     for (std::size_t i = 0; i < fi.inputs.size(); ++i)
         if (fi.connected[i]) defaultRod = defaultRod.unite(fi.inputs[i].dataWindow);
     if (plugin_.context == kOfxImageEffectContextFilter && fi.connected[0]) defaultRod = fi.inputs[0].dataWindow;
+    if (!first) defaultRod = display;
 
     CallContext call;
     fillContext(call, fi, ctx.frame);
