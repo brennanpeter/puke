@@ -50,7 +50,7 @@ static void testDiscovery() {
     std::vector<std::string> ids;
     for (const auto& p : plugins) ids.push_back(p.identifier);
     for (const char* id : {"org.comp.test.ByteOnly", "org.comp.test.Coords", "org.comp.test.Gain", "org.comp.test.Generator",
-                           "org.comp.test.MaskMultiply", "org.comp.test.Shift"})
+                           "org.comp.test.MaskMultiply", "org.comp.test.Shift", "org.comp.test.Transition"})
         CHECK(std::find(ids.begin(), ids.end(), id) != ids.end());
     CHECK(std::is_sorted(ids.begin(), ids.end()));
     for (const auto& p : plugins)
@@ -65,8 +65,9 @@ static void testDiscovery() {
     CHECK(std::find(types.begin(), types.end(), "ofx:org.comp.test.Gain") != types.end());
 
     CHECK_THROWS(createNode("ofx:org.comp.test.Nope", "X"), "no OFX plugin 'org.comp.test.Nope'");
-    CHECK_THROWS(createNode("ofx:org.comp.test.Generator", "G"), "is a generator (it has no inputs)");
-    CHECK_THROWS(createNode("ofx:org.comp.test.Generator", "G"), "is a generator");  // remembered
+    CHECK_THROWS(createNode("ofx:org.comp.test.Transition", "T"),
+                 "has no context comp can host yet (Filter, Generator or General); it offers: OfxImageEffectContextTransition");
+    CHECK_THROWS(createNode("ofx:org.comp.test.Transition", "T"), "has no context comp can host");  // remembered
     CHECK_THROWS(createNode("ofx:org.comp.test.ByteOnly", "B"), "doesn't support float images");
 }
 
@@ -276,6 +277,38 @@ static void testMaskAndThreadSafety() {
     CHECK(failures == 0);
 }
 
+// A generator: no inputs, the project's format as its frame.
+static void testGenerator() {
+    Graph g;
+    Node& gen = ofxNode(g, "org.comp.test.Generator", "Gen1");
+    CHECK(gen.maxInputs() == 0);
+    Engine e({.threads = 4, .tileSize = 16, .cacheBytes = 64 << 20});
+    const RenderContext ctx{1, Format{64, 32}};
+    const ImageInfo info = e.info(gen, ctx);
+    CHECK((info.displayWindow == Box{0, 0, 64, 32}) && (info.dataWindow == Box{0, 0, 64, 32}));
+    Image img = e.render(gen, ctx, info.dataWindow);
+    // OFX's y points up: comp's top row is OFX row 31.
+    const float* p = img.pixel(5, 0);
+    CHECK(p[0] == 0.5f && p[1] == 5.0f && p[2] == 31.0f && p[3] == 32.0f);
+    CHECK(img.pixel(63, 31)[1] == 63.0f && img.pixel(63, 31)[2] == 0.0f);
+    // Tiles on several threads match one piece.
+    Engine whole({.threads = 0, .tileSize = 1 << 20, .cacheBytes = 0});
+    CHECK(samePixels(img, whole.render(gen, ctx, info.dataWindow)));
+
+    // Parameters, and a new format (part of the cache key: not stale tiles).
+    gen.setParam("color", Color{0.25, 0, 0, 1});
+    const RenderContext small{1, Format{20, 10}};
+    img = e.render(gen, small, e.info(gen, small).dataWindow);
+    CHECK((img.region() == Box{0, 0, 20, 10}));
+    CHECK(img.pixel(0, 0)[0] == 0.25f && img.pixel(0, 0)[2] == 9.0f && img.pixel(0, 0)[3] == 10.0f);
+
+    // Feeding a filter.
+    Node& gain = ofxNode(g, "org.comp.test.Gain", "Gain1");
+    g.connect(gen, gain, 0);
+    gain.setParam("gain", 2.0);
+    CHECK(e.render(gain, small, {0, 0, 1, 1}).pixel(0, 0)[0] == 0.5f);
+}
+
 static void testCacheAndProjects() {
     Graph g;
     auto& src = source(g);
@@ -321,6 +354,7 @@ int main() {
         testShiftAndCoordinates();
         testCoordinateConvention();
         testMaskAndThreadSafety();
+        testGenerator();
         testCacheAndProjects();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "unexpected exception: %s\n", e.what());
