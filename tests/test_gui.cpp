@@ -31,6 +31,7 @@
 #include "Document.h"
 #include "MainWindow.h"
 #include "NodeGraphView.h"
+#include "ProjectSettingsDialog.h"
 #include "PropertiesPanel.h"
 #include "RenderDialog.h"
 #include "TestUtil.h"
@@ -589,6 +590,49 @@ int main(int argc, char** argv) {
             CHECK(waitFor([&] { return !viewer.busy() && canvas->result().region == full; }));
             QObject::disconnect(conn);
             doc.removeNode(r);
+        }
+
+        // --- Project format: the settings dialog, and generators following it.
+        {
+            QUndoStack& undo = doc.undoStack();
+            comp::Node& c = doc.createNode("Constant", {1000, 0});
+            doc.setParam(c, "color", comp::Color{0.5, 0.25, 0.125, 1});
+            doc.setViewed(&c);
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            CHECK((viewer.canvas()->result().full == comp::Box{0, 0, 1920, 1080}));
+
+            const comp::ProjectSettings before = doc.settings();
+            ProjectSettingsDialog dlg(doc);
+            auto* preset = find<QComboBox>(dlg, "settingsPreset");
+            auto* width = find<QSpinBox>(dlg, "settingsWidth");
+            auto* height = find<QSpinBox>(dlg, "settingsHeight");
+            CHECK(preset && width && height && preset->currentText().startsWith("HD"));
+            preset->setCurrentIndex(1);  // a preset fills the size
+            CHECK(width->value() == 3840 && height->value() == 2160);
+            width->setValue(2048);
+            height->setValue(858);  // a size that is a preset selects it
+            CHECK(preset->currentText().startsWith("2K Scope"));
+            width->setValue(200);
+            height->setValue(100);
+            CHECK(preset->currentText() == "Custom");
+
+            const int steps = undo.index();
+            CHECK(dlg.apply());
+            CHECK((doc.settings().format == comp::Format{200, 100}) && undo.index() == steps + 1);
+            CHECK(doc.settings().firstFrame == before.firstFrame && doc.settings().fps == before.fps);
+            // The viewer renders again in the new format.
+            CHECK(waitFor([&] { return !viewer.busy() && viewer.canvas()->result().full == comp::Box{0, 0, 200, 100}; }));
+            CHECK(std::fabs(viewerPixel(viewer, 199, 99, 1) - 0.25f) < 1e-6f);
+            undo.undo();
+            CHECK(doc.settings() == before);
+            CHECK(waitFor([&] { return !viewer.busy() && viewer.canvas()->result().full == comp::Box{0, 0, 1920, 1080}; }));
+            // Range and fps alone don't need a render.
+            comp::ProjectSettings s = doc.settings();
+            s.fps = 30;
+            doc.setSettings(s);
+            CHECK(!viewer.busy() && !viewer.cachedFrames().empty());
+            undo.undo();
+            doc.removeNode(c);
         }
 
         if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {

@@ -34,6 +34,7 @@ add_library(comp_core
     src/nodes/TransformNode.cpp
     src/nodes/Registry.cpp
     src/nodes/ColorSpaceNode.cpp
+    src/nodes/ConstantNode.cpp
     src/nodes/BackdropNode.cpp
     src/project/Project.cpp
     src/color/ColorConfig.cpp
@@ -108,6 +109,7 @@ if(COMP_GUI)
             gui/Document.cpp
             gui/MainWindow.cpp
             gui/NodeGraphView.cpp
+            gui/ProjectSettingsDialog.cpp
             gui/PropertiesPanel.cpp
             gui/RenderDialog.cpp
             gui/RenderJob.cpp

@@ -13,6 +13,9 @@
 #include <OpenImageIO/imageio.h>
 
 #include "TestUtil.h"
+#include "comp/graph/Graph.h"
+#include "comp/engine/Engine.h"
+#include "comp/nodes/Registry.h"
 #include "comp/color/ColorConfig.h"
 
 #if defined(_WIN32)
@@ -187,6 +190,20 @@ static void testProjects() {
     CHECK(r.exitCode == 0);
     CHECK(!fs::exists(g_dir / "ranged/out.1001.exr") && fs::exists(g_dir / "ranged/out.1002.exr") &&
           fs::exists(g_dir / "ranged/out.1003.exr"));
+
+    // Generators make the project's format.
+    writeText("gen.comp", R"({"format": "comp", "version": 1, "settings": {"format": {"width": 320, "height": 180}},
+  "nodes": [
+    {"name": "C", "type": "Constant", "params": {"color": [0.5, 0.5, 0.5, 1]}},
+    {"name": "W", "type": "Write", "inputs": ["C"], "params": {"file": "gen/c.exr"}}]})");
+    r = run("gen.comp");
+    CHECK(r.exitCode == 0);
+    {
+        comp::Graph check;
+        comp::Node& rd = check.add(comp::createNode("Read", "R"));
+        rd.setParam("file", (g_dir / "gen/c.exr").string());
+        CHECK((comp::Engine().info(rd, {}).displayWindow == comp::Box{0, 0, 320, 180}));
+    }
 
     r = run("shot.comp --write Nope");
     CHECK(r.exitCode == 2 && r.output.find("shot.comp: no node named 'Nope'") != std::string::npos);

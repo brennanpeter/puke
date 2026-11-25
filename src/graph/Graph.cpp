@@ -115,6 +115,9 @@ void Graph::setSettings(const ProjectSettings& settings) {
         throw Error("the last frame (" + std::to_string(settings.lastFrame) + ") is before the first (" +
                     std::to_string(settings.firstFrame) + ")");
     if (!(settings.fps > 0 && settings.fps < 1000)) throw Error("fps must be between 0 and 1000");
+    const Format& f = settings.format;
+    if (f.width < 1 || f.height < 1 || f.width > 65536 || f.height > 65536)
+        throw Error("the format (" + f.str() + ") must be 1 to 65536 pixels each way");
     settings_ = settings;
 }
 
