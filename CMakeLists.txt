@@ -27,7 +27,10 @@ add_library(comp_core
     src/engine/ThreadPool.cpp
     src/engine/TileCache.cpp
     src/engine/Snapshot.cpp
+    src/nodes/PremultNode.cpp
     src/nodes/ReadNode.cpp
+    src/nodes/ReformatNode.cpp
+    src/nodes/ShuffleNode.cpp
     src/nodes/WriteNode.cpp
     src/nodes/GradeNode.cpp
     src/nodes/MergeNode.cpp
@@ -35,7 +38,9 @@ add_library(comp_core
     src/nodes/Registry.cpp
     src/nodes/ColorSpaceNode.cpp
     src/nodes/ConstantNode.cpp
+    src/nodes/CropNode.cpp
     src/nodes/BackdropNode.cpp
+    src/nodes/BlurNode.cpp
     src/project/Project.cpp
     src/color/ColorConfig.cpp
     src/ofx/OfxHost.cpp
@@ -61,7 +66,7 @@ add_executable(comp_render tools/comp_render.cpp)
 target_link_libraries(comp_render PRIVATE comp_core)
 
 enable_testing()
-foreach(test read_write engine nodes cli golden project color ofx)
+foreach(test read_write engine nodes more_nodes cli golden project color ofx)
     add_executable(test_${test} tests/test_${test}.cpp)
     target_link_libraries(test_${test} PRIVATE comp_core)
     add_test(NAME ${test} COMMAND test_${test} WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

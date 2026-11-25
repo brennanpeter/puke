@@ -1,6 +1,7 @@
 #include "comp/graph/Node.h"
 
 #include <atomic>
+#include <string>
 
 namespace comp {
 
@@ -10,16 +11,28 @@ std::atomic<std::uint64_t> nextNodeId{1};
 // The ParamScope in effect on this thread, if any.
 thread_local const Node* boundNode = nullptr;
 thread_local const ParamMap* boundParams = nullptr;
+thread_local std::span<const ImageInfo* const> boundInputs;
 }  // namespace
 
-ParamScope::ParamScope(const Node& node, const ParamMap& params) : prevNode_(boundNode), prevParams_(boundParams) {
+ParamScope::ParamScope(const Node& node, const ParamMap& params, std::span<const ImageInfo* const> inputInfos)
+    : prevNode_(boundNode), prevParams_(boundParams), prevInputs_(boundInputs) {
     boundNode = &node;
     boundParams = &params;
+    boundInputs = inputInfos;
 }
 
 ParamScope::~ParamScope() {
     boundNode = prevNode_;
     boundParams = prevParams_;
+    boundInputs = prevInputs_;
+}
+
+const ImageInfo& Node::inputInfo(int index) const {
+    if (boundNode != this || boundInputs.empty())
+        throw Error(name_ + ": inputInfo() is only available while the engine renders this node");
+    if (index < 0 || index >= static_cast<int>(boundInputs.size()) || !boundInputs[index])
+        throw Error(name_ + ": input " + std::to_string(index) + " is not connected");
+    return *boundInputs[index];
 }
 
 namespace {

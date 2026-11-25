@@ -19,8 +19,8 @@ using Entry = Snapshot::Entry;
 // Runs a node hook with the snapshot's parameters bound (see ParamScope),
 // making sure any exception names the node it came from.
 template <typename F>
-auto inNode(const Entry& e, const char* stage, F&& f) {
-    ParamScope scope(*e.node, *e.params);
+auto inNode(const Entry& e, const char* stage, F&& f, std::span<const ImageInfo* const> inputInfos = {}) {
+    ParamScope scope(*e.node, *e.params, inputInfos);
     try {
         return f();
     } catch (const Error&) {
@@ -170,6 +170,11 @@ Image Engine::render(const Snapshot& snap, const RenderContext& ctx, const Box& 
     std::vector<Box> regions(n);
     std::vector<std::vector<Box>> tiles(n);
     std::vector<std::vector<std::shared_ptr<const Image>>> hits(n);
+    // Each node's inputs' infos, bound for its hooks (Node::inputInfo()).
+    std::vector<std::vector<const ImageInfo*>> inputInfos(n);
+    for (int i = 0; i < n; ++i)
+        for (int in : entries[i].inputs) inputInfos[i].push_back(in >= 0 ? &infos[in] : nullptr);
+
     regions[n - 1] = region;
     for (int i = n - 1; i >= 0; --i) {
         const Entry& e = entries[i];
@@ -190,7 +195,7 @@ Image Engine::render(const Snapshot& snap, const RenderContext& ctx, const Box& 
         for (int j = 0; j < static_cast<int>(e.inputs.size()); ++j) {
             const int k = e.inputs[j];
             if (k < 0) continue;
-            const Box need = inNode(e, "region", [&] { return node->inputRegion(ctx, j, misses); });
+            const Box need = inNode(e, "region", [&] { return node->inputRegion(ctx, j, misses); }, inputInfos[i]);
             regions[k] = regions[k].unite(need);
         }
     }
@@ -217,7 +222,7 @@ Image Engine::render(const Snapshot& snap, const RenderContext& ctx, const Box& 
 
             // Runs compute() for one tile and checks it kept to the contract.
             auto computeTile = [&](const Box& tile) {
-                Image img = inNode(e, "render", [&] { return node->compute(ctx, tile, ins); });
+                Image img = inNode(e, "render", [&] { return node->compute(ctx, tile, ins); }, inputInfos[i]);
                 if (img.region() != tile || img.channels() != infos[i].channels)
                     throw Error(node->name() + ": " + node->typeName() +
                                 " node returned a different region or channel list than requested");

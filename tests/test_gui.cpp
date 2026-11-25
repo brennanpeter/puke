@@ -623,6 +623,13 @@ int main(int argc, char** argv) {
             // The viewer renders again in the new format.
             CHECK(waitFor([&] { return !viewer.busy() && viewer.canvas()->result().full == comp::Box{0, 0, 200, 100}; }));
             CHECK(std::fabs(viewerPixel(viewer, 199, 99, 1) - 0.25f) < 1e-6f);
+            // Nodes that start from their input's frame see the project format.
+            comp::Node& crop = doc.createNode("Crop", {1000, 90}, &c);
+            CHECK((crop.vec2Param("box_min", {}) == comp::Vec2{0, 0}) && (crop.vec2Param("box_max", {}) == comp::Vec2{200, 100}));
+            comp::Node& xf2 = doc.createNode("Transform", {1100, 90}, &c);
+            CHECK((xf2.vec2Param("center", {}) == comp::Vec2{100, 50}));
+            undo.undo();
+            undo.undo();
             undo.undo();
             CHECK(doc.settings() == before);
             CHECK(waitFor([&] { return !viewer.busy() && viewer.canvas()->result().full == comp::Box{0, 0, 1920, 1080}; }));
