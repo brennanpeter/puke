@@ -82,6 +82,9 @@ public:
     void removeAnimation(comp::Node& node, const std::string& key);
     // The interpolation leaving the key at the current frame.
     void setInterp(comp::Node& node, const std::string& key, comp::Curve::Interp interp);
+    // Replaces a parameter's whole curve (the curve editor's edits). An
+    // empty curve leaves the value at the current frame, unanimated.
+    void editCurve(comp::Node& node, const std::string& key, comp::Curve curve, const QString& text);
 
     // A parameter's whole state: a plain value, a curve, or neither.
     struct ParamState {

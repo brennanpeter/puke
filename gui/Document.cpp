@@ -415,6 +415,14 @@ void Document::removeAnimation(comp::Node& node, const std::string& key) {
     pushParam(node, key, {node.valueAt(key, frame_), std::nullopt}, "Remove animation of " + QString::fromStdString(key));
 }
 
+void Document::editCurve(comp::Node& node, const std::string& key, comp::Curve curve, const QString& text) {
+    if (curve.empty()) {
+        pushParam(node, key, {node.valueAt(key, frame_), std::nullopt}, text);
+        return;
+    }
+    pushParam(node, key, {std::nullopt, std::move(curve)}, text);
+}
+
 void Document::setInterp(comp::Node& node, const std::string& key, comp::Curve::Interp interp) {
     const comp::Curve* old = node.curve(key);
     if (!old || !old->keyAt(frame_)) return;

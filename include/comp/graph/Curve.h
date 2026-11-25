@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -12,8 +13,9 @@ namespace comp {
 // any frame. Before the first key and after the last the value holds.
 //
 // How a segment moves from one key to the next is the earlier key's interp:
-//   Smooth    a cubic through the neighbouring keys (Catmull-Rom tangents,
-//             flat at the first and last key), so motion eases in and out
+//   Smooth    a cubic; each key's tangent (its slope, value per frame) is
+//             automatic (Catmull-Rom: through the neighbouring keys, flat
+//             at the first and last key) unless the key sets its own
 //   Linear    a straight line
 //   Constant  holds the value until the next key
 //
@@ -30,6 +32,10 @@ public:
         double frame = 0;
         ParamValue value;
         Interp interp = Interp::Smooth;
+        // The key's own tangent, one slope per component (1 for a number, 2
+        // for a Vec2, 4 for a Color); empty for automatic. Used by the smooth
+        // segments on both sides.
+        std::vector<double> slope;
         bool operator==(const Key&) const = default;
     };
 
@@ -47,6 +53,18 @@ public:
     bool removeKey(double frame);
     const Key* keyAt(double frame) const;
     void setInterp(double frame, Interp interp);
+    // Sets the key's tangent; empty for automatic. Throws Error if there's
+    // no key there, or the slope doesn't match its value (numbers only).
+    void setSlope(double frame, std::vector<double> slope);
+    // Moves the key at `from` to `to`, replacing any key there.
+    void moveKey(double from, double to);
+    // The tangent smooth segments use at key `index`: its own, or the
+    // automatic one. Empty for values that have no slope (strings, bools).
+    std::vector<double> slopeAt(std::size_t index) const;
+
+    // A value's numbers, for interpolating and drawing: a number, Vec2 or
+    // Color (and a shape's points, when `shapes`); nullopt for the rest.
+    static std::optional<std::vector<double>> components(const ParamValue& v, bool shapes = false);
 
     // Throws Error if the curve has no keys.
     ParamValue valueAt(double frame) const;

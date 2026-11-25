@@ -20,6 +20,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QToolButton>
 #include <QUndoStack>
 
@@ -31,6 +32,7 @@
 #include "Document.h"
 #include "MainWindow.h"
 #include "NodeGraphView.h"
+#include "CurveEditor.h"
 #include "ProjectSettingsDialog.h"
 #include "PropertiesPanel.h"
 #include "RenderDialog.h"
@@ -825,6 +827,94 @@ int main(int argc, char** argv) {
             CHECK(tool->press({p2[0], p2[1]}, 0.5));
             tool->release({p2[0], p2[1]});
             doc.removeNode(roto);
+        }
+
+        // --- The curve editor.
+        {
+            QUndoStack& undo = doc.undoStack();
+            comp::Node& g1 = *doc.graph().find("Grade1");
+            const std::string before = comp::projectToJson(doc.graph());
+            doc.setSelected(&g1);
+            doc.setFrame(1001);
+            doc.setKey(g1, "mix", 0.0);
+            doc.setFrame(1003);
+            doc.setKey(g1, "mix", 1.0);
+            doc.setKey(g1, "gain", comp::Color{1, 1, 1, 1});
+            w.bottomTabs().setCurrentWidget(&w.curveEditor());
+            QApplication::processEvents();
+            CurveEditor& ce = w.curveEditor();
+            CurveView* view = ce.view();
+            // A row per component: gain.r .. gain.a, then mix.
+            CHECK(ce.list()->count() == 5 && ce.list()->item(0)->text() == "gain.r" && ce.list()->item(4)->text() == "mix");
+            CHECK(view->curves().size() == 5);
+            // Unchecking hides a curve.
+            for (int i = 0; i < 4; ++i) ce.list()->item(i)->setCheckState(Qt::Unchecked);
+            CHECK((view->curves() == std::vector<CurveRef>{{"mix", 0}}));
+            view->frameAll();
+
+            auto mouse = [&](QEvent::Type t, QPointF at, Qt::MouseButtons held, Qt::KeyboardModifiers mods = {}) {
+                QMouseEvent e(t, at, view->mapToGlobal(at), Qt::LeftButton, held, mods);
+                QApplication::sendEvent(view, &e);
+            };
+            auto drag = [&](QPointF from, QPointF to) {
+                mouse(QEvent::MouseButtonPress, from, Qt::LeftButton);
+                mouse(QEvent::MouseMove, (from + to) / 2, Qt::LeftButton);
+                mouse(QEvent::MouseMove, to, Qt::LeftButton);
+                mouse(QEvent::MouseButtonRelease, to, Qt::NoButton);
+            };
+            const int steps = undo.index();
+
+            // Click a key to select it; drag it later in time and up.
+            const QPointF k1 = view->toWidget(1003, 1.0);
+            mouse(QEvent::MouseButtonPress, k1, Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease, k1, Qt::NoButton);
+            CHECK(view->selection().size() == 1 && view->selection()[0].frame == 1003);
+            CHECK(undo.index() == steps);  // selecting isn't an edit
+            const QPointF to = view->toWidget(1005, 1.5);
+            drag(k1, to);
+            const comp::Curve* c = g1.curve("mix");
+            CHECK(c->keys().size() == 2 && c->keys()[1].frame == 1005);  // whole frames
+            CHECK(std::fabs(std::get<double>(c->keys()[1].value) - 1.5) < 0.05);
+            CHECK(undo.index() == steps + 1 && view->selection()[0].frame == 1005);
+
+            // Its tangent handle sets a slope; flat and automatic from the menu's actions.
+            const QPointF handle = view->toWidget(1005, std::get<double>(c->keys()[1].value)) + QPointF(40, 0);
+            drag(handle, handle + QPointF(0, -40));  // up: a positive slope
+            CHECK(!g1.curve("mix")->keys()[1].slope.empty() && g1.curve("mix")->keys()[1].slope[0] > 0);
+            view->setTangents(true);
+            CHECK((g1.curve("mix")->keys()[1].slope == std::vector<double>{0}));
+            view->setTangents(false);
+            CHECK(g1.curve("mix")->keys()[1].slope.empty());
+            view->setInterp(comp::Curve::Interp::Constant);
+            CHECK(g1.curve("mix")->keys()[1].interp == comp::Curve::Interp::Constant);
+            CHECK(undo.index() == steps + 5);
+
+            // Shift-click adds the other key; dragging moves both.
+            mouse(QEvent::MouseButtonPress, view->toWidget(1001, 0.0), Qt::LeftButton, Qt::ShiftModifier);
+            mouse(QEvent::MouseButtonRelease, view->toWidget(1001, 0.0), Qt::NoButton, Qt::ShiftModifier);
+            CHECK(view->selection().size() == 2);
+            drag(view->toWidget(1001, 0.0), view->toWidget(1000, 0.0));
+            CHECK(g1.curve("mix")->keys()[0].frame == 1000 && g1.curve("mix")->keys()[1].frame == 1004);
+
+            // Double-click on the curve adds a key; Delete removes the selected
+            // ones, taking the key from the window's delete-node shortcut.
+            const double mid = std::get<double>(g1.curve("mix")->valueAt(1002));
+            mouse(QEvent::MouseButtonDblClick, view->toWidget(1002, mid), Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease, view->toWidget(1002, mid), Qt::NoButton);
+            CHECK(g1.curve("mix")->keys().size() == 3 && view->selection().size() == 1);
+            QKeyEvent over(QEvent::ShortcutOverride, Qt::Key_Delete, Qt::NoModifier);
+            QApplication::sendEvent(view, &over);
+            CHECK(over.isAccepted());
+            QKeyEvent del(QEvent::KeyPress, Qt::Key_Delete, Qt::NoModifier);
+            QApplication::sendEvent(view, &del);
+            CHECK(g1.curve("mix")->keys().size() == 2 && view->selection().empty() && doc.graph().find("Grade1"));
+
+            // Undo takes it all back, step by step.
+            while (comp::projectToJson(doc.graph()) != before && undo.canUndo()) undo.undo();
+            CHECK(comp::projectToJson(doc.graph()) == before);
+            QApplication::processEvents();
+            CHECK(ce.list()->count() == 0 && view->curves().empty());
+            w.bottomTabs().setCurrentIndex(0);
         }
 
         if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {
