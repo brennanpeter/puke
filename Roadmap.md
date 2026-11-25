@@ -95,17 +95,21 @@ Key decisions:
 - [x] **OFX generators**: the Generator context (preferred over General
   when a plugin offers both); plugins with no input connected get the
   project format as their frame and default region of definition.
+- [x] **Roto**: one shape per node (closed Bezier curves, stored as SVG
+  path data), feather, opacity, invert, alpha or color output over an
+  optional bg. Drawn and edited in the viewer: points, handles,
+  smooth/corner, several shapes per node.
+- [x] **Keyframe animation** for every parameter: curves (smooth, linear,
+  constant) evaluated per frame by the engine, so nodes need no changes;
+  shapes animate point by point. Key buttons in the properties panel,
+  editing an animated value keys it, keys marked on the timeline. Saved
+  in projects; Python set_key/keys/value_at.
 
 ## Next
 
 In planned order. Items further down are less settled.
 
-### 1. Roto
-Shapes drawn in the viewer, rendered as mattes: Bezier splines, feather,
-and animated points, so it needs keyframes first (the biggest single
-node).
-
-### 2. GUI, third milestone
+### 1. GUI, third milestone
 Left over from the second, each needing groundwork first:
 - **Proxy resolution**: rendering at a fraction of full size needs a
   render scale passed through the engine to every node (Transform
@@ -115,13 +119,18 @@ Left over from the second, each needing groundwork first:
 - **OFX overlays and custom parameter interacts**: OFX draws these with
   OpenGL, so the viewer needs an OpenGL canvas and the host needs the
   interact suite (pen and key events, redraw requests).
+- **A curve editor**: keys can only be set, removed and given an
+  interpolation from the properties panel now; no moving keys in time or
+  shaping tangents by hand.
 - Smaller: cancelling a render mid-frame (now it stops between files),
-  and caching frames ahead of playback in the background (now playback
-  caches as it goes).
+  caching frames ahead of playback in the background (now playback
+  caches as it goes), and keeping cached frames when an edit doesn't
+  affect the viewed node.
 
 ### Later
-- Animation curves on parameters, sub-frame sampling for motion blur and
-  retiming.
+- Sub-frame sampling for motion blur and retiming (curves already
+  evaluate at any time).
+- Roto: per-point feather, motion blur, open strokes (paint).
 - Deep compositing.
 - GPU backend behind the existing pixel-math interface.
 - Run independent branches of the graph at the same time.
@@ -148,9 +157,11 @@ Smaller items already marked in the code:
   filter doesn't widen (`TransformNode.h`).
 - **Merge**: no row-wise fast paths; every read is bounds-checked
   (`MergeNode.cpp`).
-- **GUI**: there's no keyboard shortcuts editor, and no animation on any
-  parameter yet. The frame cache is emptied by any edit, even one that
-  doesn't affect the viewed node.
+- **GUI**: there's no keyboard shortcuts editor. The frame cache is emptied
+  by any edit, even one that doesn't affect the viewed node.
+- **Animation**: OFX plugins see their parameters at the frame being
+  rendered, but paramGetValueAtTime() ignores its time argument. Python's
+  `node.params` lists plain values only (animated ones: `keys()`).
   ThreadSanitizer reports remain inside Qt's own event posting (Qt isn't
   built with TSan); comp's data is race-free (`gui/`).
 - **OFX**: no animated parameters,

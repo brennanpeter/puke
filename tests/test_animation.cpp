@@ -117,7 +117,7 @@ static void testNodes() {
     CHECK(num(grade.paramsAt(11).at("multiply")) == 3.0);
     CHECK(!grade.valueAt("gamma", 1));
     grade.setParam("multiply", 5.0);  // replaces the animation
-    CHECK(!grade.animated("multiply") && num(*grade.valueAt("multiply", 6)) == 5.0);
+    CHECK(!grade.animated("multiply") && grade.params().count("multiply") && num(grade.params().at("multiply")) == 5.0);
     grade.setCurve("multiply", c);
     grade.clearParam("multiply");  // unsets it entirely
     CHECK(!grade.animated("multiply") && !grade.valueAt("multiply", 6));

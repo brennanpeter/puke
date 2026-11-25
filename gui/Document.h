@@ -68,8 +68,28 @@ public:
     void moveNode(comp::Node& node, QPointF position) { moveNodes({{&node, position}}); }
     // Changes to the same parameter in a row merge into one undo step (a
     // slider drag is one step, not hundreds).
+    // Sets a parameter. If it's animated, sets a key at the current frame
+    // instead (as in Nuke: editing an animated value keys it).
     void setParam(comp::Node& node, const std::string& key, comp::ParamValue value);
+    // Back to the default: no value, no animation.
     void clearParam(comp::Node& node, const std::string& key);
+
+    // Animation, at the current frame. setKey() animates a parameter that
+    // isn't yet. Removing the last key leaves its value, unanimated, as
+    // does removeAnimation() with the value at the current frame.
+    void setKey(comp::Node& node, const std::string& key, comp::ParamValue value);
+    void removeKey(comp::Node& node, const std::string& key);
+    void removeAnimation(comp::Node& node, const std::string& key);
+    // The interpolation leaving the key at the current frame.
+    void setInterp(comp::Node& node, const std::string& key, comp::Curve::Interp interp);
+
+    // A parameter's whole state: a plain value, a curve, or neither.
+    struct ParamState {
+        std::optional<comp::ParamValue> value;
+        std::optional<comp::Curve> curve;
+        bool operator==(const ParamState&) const = default;
+    };
+    static ParamState paramState(const comp::Node& node, const std::string& key);
     // Throws comp::Error if the name is empty or taken.
     void renameNode(comp::Node& node, const std::string& name);
     // Frame range and fps. Throws comp::Error if they're invalid.
@@ -114,7 +134,8 @@ private:
     void rawInsert(const std::shared_ptr<comp::Node>& node, std::size_t index);
     void rawTake(comp::Node& node);
     void rawConnect(comp::Node* source, comp::Node& target, int input);  // null source: disconnect
-    void rawSetParam(comp::Node& node, const std::string& key, const std::optional<comp::ParamValue>& value);
+    void rawSetParam(comp::Node& node, const std::string& key, const ParamState& state);
+    void pushParam(comp::Node& node, const std::string& key, ParamState after, const QString& text);
     void rawMove(comp::Node& node, const std::optional<comp::Vec2>& position);
     void rawRename(comp::Node& node, const std::string& name);
     void rawSetSettings(const comp::ProjectSettings& settings);

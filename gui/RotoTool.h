@@ -30,7 +30,8 @@ class Document;
 //   bend its curve, double-click a point to switch it between smooth and
 //   corner, Delete or Backspace to remove the selected point.
 //
-// Every gesture is one undo step.
+// Every gesture is one undo step. An animated shape is edited as it is at
+// the current frame, and an edit sets a key there.
 class RotoTool : public QObject {
     Q_OBJECT
 public:

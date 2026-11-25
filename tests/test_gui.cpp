@@ -155,7 +155,7 @@ int main(int argc, char** argv) {
         }
         CHECK(grade.hasParam("channels") && std::get<std::string>(grade.params().at("channels")) == "rgba");
 
-        auto* reset = paramWidget<QToolButton>(w, "multiply");
+        auto* reset = find<QToolButton>(w, "reset_multiply");
         CHECK(reset && reset->isEnabled());
         if (reset) reset->click();
         CHECK(!grade.hasParam("multiply"));
@@ -749,6 +749,84 @@ int main(int argc, char** argv) {
             doc.removeNode(roto);
         }
 
+        // --- Animation: keys from the properties panel, values per frame.
+        {
+            QUndoStack& undo = doc.undoStack();
+            comp::Node& g1 = *doc.graph().find("Grade1");
+            doc.setSelected(&g1);
+            doc.setViewed(&g1);
+            doc.setFrame(1001);
+            const std::string before = comp::projectToJson(doc.graph());
+            doc.setParam(g1, "multiply", 2.0);  // something for mix to blend
+            QApplication::processEvents();
+            auto* key = find<QToolButton>(w.properties(), "key_mix");
+            auto* mix = paramWidget<QDoubleSpinBox>(w, "mix");
+            CHECK(key && mix && key->text() == QString::fromUtf8("◇"));
+            const int steps = undo.index();
+
+            // The key button animates at this frame, with the value shown.
+            mix->setValue(0.2);
+            key->click();
+            CHECK(g1.animated("mix") && g1.curve("mix")->keys().size() == 1 && key->text() == QString::fromUtf8("◆"));
+            CHECK(std::get<double>(g1.curve("mix")->keys()[0].value) == 0.2);
+            // At another frame, editing the value sets a key there.
+            doc.setFrame(1003);
+            CHECK(key->text() == QString::fromUtf8("◇"));
+            mix->setValue(1.0);
+            CHECK(g1.curve("mix")->keys().size() == 2 && undo.index() == steps + 3);
+            // Between keys the panel shows the curve's value; linear makes it exact.
+            doc.setFrame(1001);
+            doc.setInterp(g1, "mix", comp::Curve::Interp::Linear);
+            doc.setFrame(1002);
+            CHECK(std::fabs(mix->value() - 0.6) < 1e-9);
+            // The timeline marks the keys.
+            auto* bar = w.findChild<TimeBar*>("timeBar");
+            CHECK(bar && (bar->keyFrames() == std::vector<double>{1001, 1003}));
+
+            // The viewer renders each frame's value (mix blends Grade1's x2 on
+            // R back towards the input).
+            for (int f : {1001, 1002, 1003}) {
+                doc.setFrame(f);
+                CHECK(waitFor([&] { return !viewer.busy(); }));
+                const double m = 0.2 + 0.4 * (f - 1001);
+                CHECK(std::fabs(viewerPixel(viewer, 10, 20, 0) - plate(10, 20, 0) * (1 + m)) < 1e-5f);
+            }
+
+            // Removing keys with the button; the last one leaves its value.
+            doc.setFrame(1003);
+            key->click();
+            CHECK(g1.curve("mix")->keys().size() == 1);
+            doc.setFrame(1001);
+            key->click();
+            CHECK(!g1.animated("mix") && std::get<double>(g1.params().at("mix")) == 0.2);
+            while (comp::projectToJson(doc.graph()) != before && undo.canUndo()) undo.undo();
+            CHECK(comp::projectToJson(doc.graph()) == before && undo.index() >= steps - 1);
+
+            // An animated Roto shape: dragging a point at another frame keys
+            // the shape there, and frames between move the point part way.
+            comp::Node& roto = doc.createNode("Roto", {1300, 0});
+            doc.setParam(roto, "shape", std::string("M 20 20 L 60 20 L 60 60 L 20 60 Z"));
+            doc.setSelected(&roto);
+            doc.setViewed(&roto);
+            QApplication::processEvents();
+            find<QToolButton>(w.properties(), "key_shape")->click();
+            CHECK(roto.animated("shape"));
+            doc.setFrame(1003);
+            RotoTool* tool = viewer.rotoTool();
+            CHECK(tool->press({60, 60}, 1));
+            tool->move({70, 80});
+            tool->release({70, 80});
+            CHECK(roto.curve("shape")->keys().size() == 2);
+            doc.setFrame(1002);
+            const comp::Path mid = comp::Path::parse(std::get<std::string>(*roto.valueAt("shape", 1002)));
+            const auto p2 = mid.curves()[0][2].point;
+            CHECK(p2[0] > 60 && p2[0] < 70 && p2[1] > 60 && p2[1] < 80);
+            // The tool edits what's on screen at this frame.
+            CHECK(tool->press({p2[0], p2[1]}, 0.5));
+            tool->release({p2[0], p2[1]});
+            doc.removeNode(roto);
+        }
+
         if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {
             doc.setParam(*doc.graph().find("Grade1"), "multiply", comp::Color{1.4, 1.1, 0.8, 1});
             doc.setParam(*doc.graph().find("Transform1"), "rotate", 12.0);
@@ -766,6 +844,14 @@ int main(int argc, char** argv) {
             doc.setParam(roto, "color", comp::Color{0.9, 0.5, 0.2, 0.6});
             doc.setSelected(&roto);
             doc.setViewed(&roto);
+            CHECK(waitForRender(viewer));
+            // Animated: keys on the timeline and filled key buttons.
+            doc.setFrame(1001);
+            doc.setKey(roto, "opacity", 1.0);
+            doc.setFrame(1003);
+            doc.setKey(roto, "opacity", 0.5);
+            doc.setFrame(1002);
+            doc.setKey(roto, "feather", 6.0);
             CHECK(waitForRender(viewer));
             viewer.rotoTool()->press({125, 45}, 2);  // select a point, to show its handles
             viewer.rotoTool()->release({125, 45});

@@ -31,6 +31,18 @@ TimeBar::TimeBar(Document& doc, Viewer& viewer, QWidget* parent) : QWidget(paren
     connect(&doc_, &Document::frameChanged, this, qOverload<>(&QWidget::update));
     connect(&doc_, &Document::settingsChanged, this, qOverload<>(&QWidget::update));
     connect(&viewer_, &Viewer::cacheChanged, this, qOverload<>(&QWidget::update));
+    connect(&doc_, &Document::selectionChanged, this, qOverload<>(&QWidget::update));
+    connect(&doc_, &Document::paramChanged, this, qOverload<>(&QWidget::update));
+}
+
+std::vector<double> TimeBar::keyFrames() const {
+    std::vector<double> out;
+    if (comp::Node* n = doc_.selected())
+        for (const auto& [key, curve] : n->curves())
+            for (const auto& k : curve.keys()) out.push_back(k.frame);
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
 }
 
 double TimeBar::xOf(double frame) const {
@@ -80,6 +92,16 @@ void TimeBar::paintEvent(QPaintEvent*) {
     const double w = std::max(1.0, perFrame);
     for (int c : viewer_.cachedFrames())
         if (c >= s.firstFrame && c <= s.lastFrame) p.drawRect(QRectF(xOf(c) - w / 2, h - 3, w, 3));
+
+    // The selected node's keys: small diamonds along the top.
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(240, 170, 60));
+    for (double k : keyFrames()) {
+        if (k < s.firstFrame || k > s.lastFrame) continue;
+        const double x = xOf(k);
+        const QPointF d[4] = {{x, 13}, {x + 4, 17}, {x, 21}, {x - 4, 17}};
+        p.drawPolygon(d, 4);
+    }
 
     // The current frame.
     const int cur = doc_.frame();
