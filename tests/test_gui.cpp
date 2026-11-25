@@ -34,9 +34,11 @@
 #include "ProjectSettingsDialog.h"
 #include "PropertiesPanel.h"
 #include "RenderDialog.h"
+#include "RotoTool.h"
 #include "TestUtil.h"
 #include "Timeline.h"
 #include "Viewer.h"
+#include "comp/core/Path.h"
 #include "comp/engine/Engine.h"
 #include "comp/nodes/Registry.h"
 #include "comp/project/Project.h"
@@ -642,6 +644,111 @@ int main(int argc, char** argv) {
             doc.removeNode(c);
         }
 
+        // --- Drawing and editing a Roto shape in the viewer.
+        {
+            QUndoStack& undo = doc.undoStack();
+            ViewerCanvas* canvas = viewer.canvas();
+            RotoTool* tool = viewer.rotoTool();
+            auto* draw = find<QToolButton>(viewer, "rotoDraw");
+            comp::Node& roto = doc.createNode("Roto", {1200, 0});
+            doc.setSelected(nullptr);
+            CHECK(draw && draw->isHidden() && !tool->node());
+            doc.setSelected(&roto);
+            doc.setViewed(&roto);
+            CHECK(!draw->isHidden() && tool->node() == &roto);
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            canvas->oneToOne();
+            canvas->centerOn({50, 40});
+            QApplication::processEvents();
+
+            // Mouse events at image positions.
+            auto mouse = [&](QEvent::Type t, QPointF image, Qt::MouseButtons held) {
+                const QPointF w = canvas->toWidget(image);
+                QMouseEvent e(t, w, canvas->mapToGlobal(w), Qt::LeftButton, held, Qt::NoModifier);
+                QApplication::sendEvent(canvas, &e);
+            };
+            auto click = [&](QPointF p) {
+                mouse(QEvent::MouseButtonPress, p, Qt::LeftButton);
+                mouse(QEvent::MouseButtonRelease, p, Qt::NoButton);
+            };
+            auto dragTo = [&](QPointF from, QPointF to) {
+                mouse(QEvent::MouseButtonPress, from, Qt::LeftButton);
+                mouse(QEvent::MouseMove, (from + to) / 2, Qt::LeftButton);
+                mouse(QEvent::MouseMove, to, Qt::LeftButton);
+                mouse(QEvent::MouseButtonRelease, to, Qt::NoButton);
+            };
+            auto shape = [&] { return roto.param<std::string>("shape", ""); };
+
+            // Draw: three clicks and a click-drag (a smooth point), then
+            // click the first point to finish. One undo step per point.
+            draw->click();
+            CHECK(tool->drawing());
+            const int steps = undo.index();
+            click({20, 20});
+            click({80, 20});
+            dragTo({80, 60}, {90, 60});
+            click({20, 60});
+            CHECK(undo.index() == steps + 4);
+            click({20, 20});  // finishes; changes nothing
+            CHECK(undo.index() == steps + 4);
+            CHECK(shape() == "M 20 20 L 80 20 C 80 20 70 60 80 60 C 90 60 20 60 20 60 Z");
+            // The viewer shows the matte.
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            CHECK(viewerPixel(viewer, 50, 40, 3) == 1.0f && viewerPixel(viewer, 50, 10, 3) == 0.0f);
+            draw->click();
+            CHECK(!tool->drawing());
+
+            // Drag a point; then the smooth point's handle, which turns the
+            // other handle too (keeping its length).
+            dragTo({80, 20}, {85, 25});
+            CHECK(shape().starts_with("M 20 20 L 85 25 C"));
+            click({80, 60});
+            CHECK((tool->selection() == std::pair{0, 2}));
+            dragTo({90, 60}, {80, 70});
+            const comp::Path p = comp::Path::parse(shape());
+            const auto& k = p.curves()[0][2];
+            CHECK((k.out == comp::Path::Point{80, 70}) && (k.in == comp::Path::Point{80, 50}));
+            CHECK(undo.index() == steps + 6);
+
+            // Double-click: smooth <-> corner.
+            mouse(QEvent::MouseButtonDblClick, {20, 20}, Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease, {20, 20}, Qt::NoButton);
+            CHECK(comp::Path::parse(shape()).curves()[0][0].out != comp::Path::Point({20, 20}));
+            CHECK(undo.index() == steps + 7);
+
+            // Delete removes the selected point, and the viewer claims the key
+            // from the window's Delete-node shortcut.
+            QKeyEvent over(QEvent::ShortcutOverride, Qt::Key_Delete, Qt::NoModifier);
+            QApplication::sendEvent(canvas, &over);
+            CHECK(over.isAccepted());
+            QKeyEvent del(QEvent::KeyPress, Qt::Key_Delete, Qt::NoModifier);
+            QApplication::sendEvent(canvas, &del);
+            CHECK(comp::Path::parse(shape()).curves()[0].size() == 3 && doc.graph().find("Roto1"));
+            CHECK(!tool->selection());
+            QKeyEvent over2(QEvent::ShortcutOverride, Qt::Key_Delete, Qt::NoModifier);
+            QApplication::sendEvent(canvas, &over2);
+            CHECK(!over2.isAccepted());  // nothing selected: Delete is the window's again
+
+            // Undo goes back point by point.
+            undo.undo();
+            CHECK(comp::Path::parse(shape()).curves()[0].size() == 4);
+            while (undo.index() > steps) undo.undo();
+            CHECK(shape().empty());
+
+            // A second shape in the same node, finished with Enter.
+            draw->click();
+            for (QPointF q : {QPointF(30, 30), QPointF(40, 30), QPointF(40, 40)}) click(q);
+            QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+            QApplication::sendEvent(canvas, &enter);
+            click({60, 60});  // a new curve
+            click({70, 60});
+            click({70, 70});
+            CHECK(comp::Path::parse(shape()).curves().size() == 2);
+            doc.setSelected(nullptr);  // leaving the node ends drawing
+            CHECK(!tool->drawing() && draw->isHidden());
+            doc.removeNode(roto);
+        }
+
         if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {
             doc.setParam(*doc.graph().find("Grade1"), "multiply", comp::Color{1.4, 1.1, 0.8, 1});
             doc.setParam(*doc.graph().find("Transform1"), "rotate", 12.0);
@@ -651,9 +758,17 @@ int main(int argc, char** argv) {
             w.graphView().selectNodes({doc.graph().find("Read1"), doc.graph().find("Grade1"), doc.graph().find("Transform1")});
             w.graphView().createAt("Backdrop", {});
             doc.setParam(*doc.graph().find("Backdrop1"), "label", std::string("Plate prep"));
-            doc.setSelected(doc.graph().find("Grade1"));
-            doc.setViewed(doc.graph().find("Merge1"));
+            // A Roto over the result, selected, so its shape shows in the viewer.
+            comp::Node& roto = doc.createNode("Roto", {0, 400}, doc.graph().find("Merge1"));
+            doc.setParam(roto, "shape", std::string("M 30 20 C 70 5 120 20 125 45 L 95 80 C 60 85 20 70 30 20 Z"));
+            doc.setParam(roto, "feather", 6.0);
+            doc.setParam(roto, "output", std::string("rgba"));
+            doc.setParam(roto, "color", comp::Color{0.9, 0.5, 0.2, 0.6});
+            doc.setSelected(&roto);
+            doc.setViewed(&roto);
             CHECK(waitForRender(viewer));
+            viewer.rotoTool()->press({125, 45}, 2);  // select a point, to show its handles
+            viewer.rotoTool()->release({125, 45});
             w.graphView().fitAll();
             QApplication::processEvents();
             w.grab().save(QString::fromUtf8(shot));
