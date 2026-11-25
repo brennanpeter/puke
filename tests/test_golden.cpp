@@ -30,6 +30,7 @@
 #include "comp/nodes/GradeNode.h"
 #include "comp/nodes/MergeNode.h"
 #include "comp/nodes/ReadNode.h"
+#include "comp/nodes/Registry.h"
 #include "comp/nodes/TransformNode.h"
 
 namespace fs = std::filesystem;
@@ -138,6 +139,21 @@ static std::vector<Case> cases() {
         {"transform_nearest", [](Graph& g) -> Node& { return transform(g, read(g, "FG", "fg.exr"), "nearest"); }},
         {"transform_bilinear", [](Graph& g) -> Node& { return transform(g, read(g, "FG", "fg.exr"), "bilinear"); }},
         {"transform_cubic", [](Graph& g) -> Node& { return transform(g, read(g, "FG", "fg.exr"), "cubic"); }},
+
+        {"blur_gaussian", [](Graph& g) -> Node& {
+             Node& blur = g.add(createNode("Blur", "Blur1"));
+             g.connect(read(g, "FG", "fg.exr"), blur, 0);
+             blur.setParam("size", Vec2{9, 4});
+             return blur;
+         }},
+        {"reformat_fit", [](Graph& g) -> Node& {
+             Node& rf = g.add(createNode("Reformat", "Reformat1"));
+             g.connect(read(g, "BG", "bg.exr"), rf, 0);
+             rf.setParam("format", std::string("custom"));
+             rf.setParam("size", Vec2{48, 48});
+             rf.setParam("resize", std::string("fit"));
+             return rf;
+         }},
 
         {"merge_over", [](Graph& g) -> Node& {
              return merge(g, read(g, "BG", "bg.exr"), read(g, "FG", "fg.exr"), "over");

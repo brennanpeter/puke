@@ -222,9 +222,9 @@ static void testProjects() {
     r = run("still.comp --frames 1-2");
     CHECK(r.exitCode == 2 && r.output.find("W: output needs a frame token") != std::string::npos);
 
-    writeText("broken.comp", R"({"format": "comp", "version": 1, "nodes": [{"name": "B", "type": "Blur"}]})");
+    writeText("broken.comp", R"({"format": "comp", "version": 1, "nodes": [{"name": "B", "type": "Defocus"}]})");
     r = run("broken.comp");
-    CHECK(r.exitCode == 2 && r.output.find("broken.comp: node 1 (B): unknown node type 'Blur'") != std::string::npos);
+    CHECK(r.exitCode == 2 && r.output.find("broken.comp: node 1 (B): unknown node type 'Defocus'") != std::string::npos);
     r = run("missing.comp");
     CHECK(r.exitCode == 2 && r.output.find("cannot open project 'missing.comp'") != std::string::npos);
 }

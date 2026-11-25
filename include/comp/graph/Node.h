@@ -60,9 +60,13 @@ class Node;
 // `params` instead of the node's live values. The engine sets one around
 // every hook it calls, so a render only ever sees the parameter values of
 // the snapshot it started from, even while the graph is being edited.
+//
+// It also binds the node's inputs' infos for inputRegion() and compute(),
+// which can read them with Node::inputInfo() (a Reformat needs its input's
+// display window to know how much it scales).
 class ParamScope {
 public:
-    ParamScope(const Node& node, const ParamMap& params);
+    ParamScope(const Node& node, const ParamMap& params, std::span<const ImageInfo* const> inputInfos = {});
     ~ParamScope();
     ParamScope(const ParamScope&) = delete;
     ParamScope& operator=(const ParamScope&) = delete;
@@ -70,6 +74,7 @@ public:
 private:
     const Node* prevNode_;
     const ParamMap* prevParams_;
+    std::span<const ImageInfo* const> prevInputs_;
 };
 
 // Base class for all nodes.
@@ -169,6 +174,11 @@ public:
     double numberParam(const std::string& key, double fallback) const;  // int or double
     Vec2 vec2Param(const std::string& key, Vec2 fallback) const;         // Vec2, or one number for both
     Color colorParam(const std::string& key, double fallback) const;     // Color, or one number for all
+
+    // Input `index`'s info for the current render: only inside the engine's
+    // calls to inputRegion() and compute(). Throws if it's unconnected, or
+    // called anywhere else.
+    const ImageInfo& inputInfo(int index) const;
 
     // --- evaluation hooks (called by Engine) ---
     virtual ImageInfo computeInfo(const RenderContext& ctx,

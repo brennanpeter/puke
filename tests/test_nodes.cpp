@@ -539,7 +539,7 @@ static void testConstant() {
 
 static void testRegistry() {
     // Built-in types first, then any OFX plugins installed on this machine.
-    const std::vector<std::string> builtin{"Backdrop", "ColorSpace", "Constant", "Grade", "Merge", "Read", "Transform", "Write"};
+    const std::vector<std::string> builtin{"Backdrop", "Blur", "ColorSpace", "Constant", "Crop", "Grade", "Merge", "Premult", "Read", "Reformat", "Shuffle", "Transform", "Unpremult", "Write"};
     const auto all = nodeTypes();
     CHECK(all.size() >= builtin.size() && std::equal(builtin.begin(), builtin.end(), all.begin()));
     for (std::size_t i = builtin.size(); i < all.size(); ++i) CHECK(all[i].rfind("ofx:", 0) == 0);
@@ -550,7 +550,7 @@ static void testRegistry() {
         CHECK(n.typeName() == t);
         CHECK(g.find(t + "1") == &n);
     }
-    CHECK_THROWS(createNode("Blur", "Blur1"), "unknown node type 'Blur' (built-in types: Backdrop, ColorSpace, Constant, Grade, Merge");
+    CHECK_THROWS(createNode("Defocus", "Defocus1"), "unknown node type 'Defocus' (built-in types: Backdrop, Blur, ColorSpace, Constant, Crop, Grade");
     CHECK_THROWS(g.add(createNode("Grade", "Grade1")), "a node named 'Grade1' already exists");
     CHECK_THROWS(g.add(nullptr), "cannot add a null node");
     CHECK(g.nodes().size() == types.size());
