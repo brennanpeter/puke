@@ -8,12 +8,14 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSplitter>
+#include <QTabWidget>
 #include <QVBoxLayout>
 #include <QStatusBar>
 #include <QStyleFactory>
 #include <QApplication>
 #include <QPalette>
 
+#include "CurveEditor.h"
 #include "Document.h"
 #include "NodeGraphView.h"
 #include "ProjectSettingsDialog.h"
@@ -63,7 +65,14 @@ MainWindow::MainWindow() {
 
     auto* split = new QSplitter(Qt::Vertical);
     split->addWidget(top);
-    split->addWidget(graph_);
+    // The node graph and the curve editor share the bottom, as tabs.
+    curves_ = new CurveEditor(*doc_);
+    tabs_ = new QTabWidget;
+    tabs_->setObjectName("bottomTabs");
+    tabs_->setDocumentMode(true);
+    tabs_->addTab(graph_, "Node Graph");
+    tabs_->addTab(curves_, "Curve Editor");
+    split->addWidget(tabs_);
     split->setStretchFactor(0, 3);
     split->setStretchFactor(1, 2);
     split->setSizes({520, 340});

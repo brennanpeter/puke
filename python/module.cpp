@@ -389,6 +389,33 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
             "key"_a, "The keys of an animated parameter, as (frame, value, interp); [] if it isn't animated.")
         .def("animated", [](const NodeRef& n, const std::string& key) { return n.get().animated(key); }, "key"_a)
         .def(
+            "set_slope",
+            [](const NodeRef& n, const std::string& key, double frame, py::object slope) {
+                Node& node = n.get();
+                if (!node.curve(key)) throw comp::Error(node.name() + ": '" + key + "' isn't animated");
+                std::vector<double> s;
+                if (!slope.is_none()) {
+                    if (py::isinstance<py::float_>(slope) || py::isinstance<py::int_>(slope)) s.push_back(slope.cast<double>());
+                    else s = slope.cast<std::vector<double>>();
+                }
+                comp::Curve c = *node.curve(key);
+                c.setSlope(frame, std::move(s));
+                node.setCurve(key, std::move(c));
+            },
+            "key"_a, "frame"_a, "slope"_a,
+            "Sets a key's tangent (value per frame: a number, or one per component); None for automatic.")
+        .def(
+            "slope",
+            [](const NodeRef& n, const std::string& key, double frame) -> py::object {
+                const comp::Curve* c = n.get().curve(key);
+                const comp::Curve::Key* k = c ? c->keyAt(frame) : nullptr;
+                if (!k) throw py::key_error(key + " has no key at that frame");
+                if (k->slope.empty()) return py::none();
+                if (k->slope.size() == 1) return py::float_(k->slope[0]);
+                return py::tuple(py::cast(k->slope));
+            },
+            "key"_a, "frame"_a, "A key's own tangent, or None if it's automatic.")
+        .def(
             "value_at",
             [](const NodeRef& n, const std::string& key, double frame) {
                 const auto v = n.get().valueAt(key, frame);

@@ -16,12 +16,12 @@ auto byFrame(std::vector<Curve::Key>& keys, double frame) {
 }
 
 // A value as numbers, to be weighted and added; and back.
-std::optional<std::vector<double>> numbers(const ParamValue& v) {
+std::optional<std::vector<double>> numbers(const ParamValue& v, bool shapes = true) {
     if (auto* d = std::get_if<double>(&v)) return std::vector<double>{*d};
     if (auto* i = std::get_if<int>(&v)) return std::vector<double>{double(*i)};
     if (auto* a = std::get_if<Vec2>(&v)) return std::vector<double>(a->begin(), a->end());
     if (auto* c = std::get_if<Color>(&v)) return std::vector<double>(c->begin(), c->end());
-    if (auto* s = std::get_if<std::string>(&v)) {
+    if (auto* s = std::get_if<std::string>(&v); s && shapes) {
         try {
             const Path p = Path::parse(*s);
             if (p.empty()) return std::nullopt;
@@ -74,7 +74,7 @@ ParamValue fromNumbers(const ParamValue& like, const std::vector<double>& n) {
 void Curve::setKey(double frame, ParamValue value) {
     auto it = byFrame(keys_, frame);
     if (it != keys_.end() && it->frame == frame) it->value = std::move(value);
-    else keys_.insert(it, Key{frame, std::move(value), Interp::Smooth});
+    else keys_.insert(it, Key{frame, std::move(value), Interp::Smooth, {}});
 }
 
 void Curve::setKey(double frame, ParamValue value, Interp interp) {
@@ -100,6 +100,53 @@ void Curve::setInterp(double frame, Interp interp) {
     it->interp = interp;
 }
 
+std::optional<std::vector<double>> Curve::components(const ParamValue& v, bool shapes) { return numbers(v, shapes); }
+
+std::vector<double> Curve::slopeAt(std::size_t i) const {
+    if (i >= keys_.size()) return {};
+    const Key& k = keys_[i];
+    const auto p = numbers(k.value);
+    if (!p || std::holds_alternative<bool>(k.value)) return {};
+    if (!k.slope.empty() && k.slope.size() == p->size()) return k.slope;
+    std::vector<double> m(p->size(), 0.0);  // flat
+    // Automatic: through the neighbours, if both can be blended with it.
+    if (i == 0 || i + 1 >= keys_.size()) return m;
+    const Key& prev = keys_[i - 1];
+    const Key& next = keys_[i + 1];
+    if (!blendable(prev.value, k.value) || !blendable(next.value, k.value)) return m;
+    const auto a = numbers(prev.value), b = numbers(next.value);
+    if (!a || !b || a->size() != m.size() || b->size() != m.size()) return m;
+    for (std::size_t c = 0; c < m.size(); ++c) m[c] = ((*b)[c] - (*a)[c]) / (next.frame - prev.frame);
+    return m;
+}
+
+void Curve::setSlope(double frame, std::vector<double> slope) {
+    auto it = byFrame(keys_, frame);
+    if (it == keys_.end() || it->frame != frame) throw Error("no key at frame " + std::to_string(frame));
+    if (!slope.empty()) {
+        const auto n = numbers(it->value, false);
+        if (!n || std::holds_alternative<bool>(it->value))
+            throw Error("only keys holding numbers, Vec2s or Colors can have a slope");
+        if (slope.size() != n->size())
+            throw Error("a slope needs " + std::to_string(n->size()) + " number(s) for this key, not " +
+                        std::to_string(slope.size()));
+        for (double d : slope)
+            if (!std::isfinite(d)) throw Error("a slope must be finite");
+    }
+    it->slope = std::move(slope);
+}
+
+void Curve::moveKey(double from, double to) {
+    auto it = byFrame(keys_, from);
+    if (it == keys_.end() || it->frame != from) throw Error("no key at frame " + std::to_string(from));
+    Key k = std::move(*it);
+    keys_.erase(it);
+    k.frame = to;
+    auto at = byFrame(keys_, to);
+    if (at != keys_.end() && at->frame == to) *at = std::move(k);
+    else keys_.insert(at, std::move(k));
+}
+
 ParamValue Curve::valueAt(double frame) const {
     if (keys_.empty()) throw Error("an animation curve with no keys");
     if (frame <= keys_.front().frame) return keys_.front().value;
@@ -111,37 +158,21 @@ ParamValue Curve::valueAt(double frame) const {
     const Key& a = keys_[i];
     const Key& b = keys_[i + 1];
     if (a.interp == Interp::Constant || !blendable(a.value, b.value)) return a.value;
+    const auto pa = numbers(a.value), pb = numbers(b.value);
+    if (!pa || !pb || pa->size() != pb->size()) return a.value;
 
     const double h = b.frame - a.frame, s = (frame - a.frame) / h;
-    // Weights on the values of keys i-1, i, i+1, i+2.
-    double w[4] = {0, 1 - s, s, 0};
-    if (a.interp == Interp::Smooth) {
+    std::vector<double> out(pa->size());
+    if (a.interp == Interp::Linear) {
+        for (std::size_t c = 0; c < out.size(); ++c) out[c] = (1 - s) * (*pa)[c] + s * (*pb)[c];
+    } else {  // smooth: cubic Hermite between the two keys' tangents
         const double s2 = s * s, s3 = s2 * s;
         const double h00 = 2 * s3 - 3 * s2 + 1, h10 = s3 - 2 * s2 + s, h01 = -2 * s3 + 3 * s2, h11 = s3 - s2;
-        w[0] = 0, w[1] = h00, w[2] = h01, w[3] = 0;
-        // Tangents (value per frame): through the neighbours, flat at the ends.
-        // A neighbour that can't be blended counts as flat too.
-        if (i > 0 && blendable(keys_[i - 1].value, a.value)) {
-            const double k = h * h10 / (b.frame - keys_[i - 1].frame);
-            w[2] += k, w[0] -= k;
-        }
-        if (i + 2 < keys_.size() && blendable(keys_[i + 2].value, b.value)) {
-            const double k = h * h11 / (keys_[i + 2].frame - a.frame);
-            w[3] += k, w[1] -= k;
-        }
+        const std::vector<double> ma = slopeAt(i), mb = slopeAt(i + 1);
+        for (std::size_t c = 0; c < out.size(); ++c)
+            out[c] = h00 * (*pa)[c] + h01 * (*pb)[c] + h * (h10 * (c < ma.size() ? ma[c] : 0) + h11 * (c < mb.size() ? mb[c] : 0));
     }
-    const ParamValue* vals[4] = {i > 0 ? &keys_[i - 1].value : nullptr, &a.value, &b.value,
-                                 i + 2 < keys_.size() ? &keys_[i + 2].value : nullptr};
-    std::vector<double> sum;
-    for (int j = 0; j < 4; ++j) {
-        if (w[j] == 0 || !vals[j]) continue;
-        const auto n = numbers(*vals[j]);
-        if (!n) return a.value;  // can't happen for blendable values
-        if (sum.empty()) sum.assign(n->size(), 0.0);
-        if (n->size() != sum.size()) return a.value;
-        for (std::size_t k = 0; k < n->size(); ++k) sum[k] += w[j] * (*n)[k];
-    }
-    return sum.empty() ? a.value : fromNumbers(a.value, sum);
+    return fromNumbers(a.value, out);
 }
 
 const char* Curve::interpName(Interp i) {

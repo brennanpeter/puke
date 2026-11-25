@@ -91,6 +91,45 @@ static void testCurves() {
     CHECK_THROWS(Curve::parseInterp("bezier"), "unknown interpolation 'bezier' (use smooth, linear or constant)");
 }
 
+static void testSlopesAndMoves() {
+    Curve c;
+    c.setKey(0, 0.0);
+    c.setKey(10, 10.0);
+    c.setKey(20, 0.0);
+    // Automatic: flat at the ends, through the neighbours in the middle.
+    CHECK((c.slopeAt(0) == std::vector<double>{0}) && (c.slopeAt(1) == std::vector<double>{0}));
+    // The key's own slope bends the segments on both sides.
+    c.setSlope(10, {2.0});
+    CHECK((c.slopeAt(1) == std::vector<double>{2}));
+    const double d = num(c.valueAt(10.0001)) - num(c.valueAt(9.9999));
+    CHECK_NEAR(d / 0.0002, 2.0);
+    CHECK(num(c.valueAt(12)) > 10.0);  // still rising after the key
+    c.setSlope(10, {});  // automatic again
+    CHECK(c.keyAt(10)->slope.empty());
+
+    // Per component for Vec2 and Color; checked.
+    Curve v;
+    v.setKey(0, Vec2{0, 0});
+    v.setKey(10, Vec2{10, 10});
+    v.setSlope(0, {1, -1});
+    CHECK(std::get<Vec2>(v.valueAt(1))[0] > 0.9 && std::get<Vec2>(v.valueAt(1))[1] < 0.5);
+    CHECK_THROWS(v.setSlope(0, {1}), "a slope needs 2 number(s) for this key, not 1");
+    CHECK_THROWS(v.setSlope(5, {1, 1}), "no key at frame");
+    Curve s;
+    s.setKey(0, std::string("a"));
+    CHECK_THROWS(s.setSlope(0, {1}), "only keys holding numbers, Vec2s or Colors can have a slope");
+    CHECK(s.slopeAt(0).empty());
+
+    // Moving keys in time keeps their value, interp and slope.
+    c.setKey(10, 10.0, Interp::Linear);
+    c.setSlope(10, {3.0});
+    c.moveKey(10, 12);
+    CHECK(!c.keyAt(10) && c.keyAt(12)->interp == Interp::Linear && (c.keyAt(12)->slope == std::vector<double>{3}));
+    c.moveKey(12, 20);  // onto another key: replaces it
+    CHECK(c.keys().size() == 2 && num(c.keyAt(20)->value) == 10);
+    CHECK_THROWS(c.moveKey(7, 8), "no key at frame");
+}
+
 static void testShapes() {
     // Shapes with the same points move point by point, handles included.
     Curve c;
@@ -162,6 +201,10 @@ static void testProjects() {
     c.setKey(1001, 1.0);
     c.setKey(1010.5, Color{1, 2, 3, 4}, Interp::Linear);
     c.setKey(1020, 2, Interp::Constant);
+    c.setKey(1030, Vec2{1, 1});
+    c.setSlope(1030, {0.5, -0.5});
+    c.setKey(1040, 4.0);
+    c.setSlope(1040, {0.25});
     grade.setCurve("gain", c);
     grade.setParam("mix", 0.5);
     const std::string text = projectToJson(g);
@@ -172,6 +215,8 @@ static void testProjects() {
               1.0
             ],)") != std::string::npos);
     CHECK(text.find(R"("linear")") != std::string::npos && text.find("1010.5") != std::string::npos);
+    CHECK(text.find(R"("smooth",
+              0.25)") != std::string::npos);  // a slope forces the interp to be written
     const Graph back = projectFromJson(text);
     CHECK(*back.find("Grade1")->curve("gain") == c);
     CHECK(num(back.find("Grade1")->params().at("mix")) == 0.5);
@@ -192,11 +237,17 @@ static void testProjects() {
     CHECK_THROWS(load(R"({"curve": [[1, 1, 2]]})"), "key 1: the interpolation must be a string");
     CHECK_THROWS(load(R"({"curve": [[1, {"curve": []}]]})"), "key 1: a key's value can't be animated itself");
     CHECK_THROWS(load(R"({"curve": [[1, [1, 2, 3]]]})"), "a list must have 2 numbers (Vec2) or 4 (Color)");
+    CHECK((load(R"({"curve": [[1, [1, 2], "smooth", [0.5, 1]]]})").find("G")->curve("gain")->keys()[0].slope ==
+           std::vector<double>{0.5, 1}));
+    CHECK_THROWS(load(R"({"curve": [[1, 1, "smooth", "steep"]]})"), "key 1: the slope must be a number or a list");
+    CHECK_THROWS(load(R"({"curve": [[1, 1, "smooth", [1, 2]]]})"), "key 1: a slope needs 1 number(s)");
+    CHECK_THROWS(load(R"({"curve": [[1, 1, "smooth", 1, 2]]})"), "key 1 must be [frame, value]");
 }
 
 int main() {
     try {
         testCurves();
+        testSlopesAndMoves();
         testShapes();
         testNodes();
         testRendering();
