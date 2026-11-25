@@ -322,13 +322,19 @@ comp::Node& Document::createNode(const std::string& type, QPointF position, comp
     std::vector<Connection> conns;
     if (upstream && node->maxInputs() > 0) {
         conns.push_back({upstream->shared_from_this(), node, 0});
-        // Transform pivots around the middle of its input's frame, as a user
-        // would expect (the node itself defaults to the origin).
-        if (type == "Transform") {
+        // Some nodes start from their input's frame, as a user would expect:
+        // Transform pivots around its middle (the node itself defaults to
+        // the origin), Crop's box is all of it.
+        if (type == "Transform" || type == "Crop") {
             try {
                 comp::Engine engine(comp::EngineOptions{.threads = 1});
-                const comp::Box f = engine.info(*upstream, {}).displayWindow;
-                node->setParam("center", comp::Vec2{(f.x0 + f.x1) / 2.0, (f.y0 + f.y1) / 2.0});
+                const comp::Box f = engine.info(*upstream, {double(frame_), settings().format}).displayWindow;
+                if (type == "Transform") {
+                    node->setParam("center", comp::Vec2{(f.x0 + f.x1) / 2.0, (f.y0 + f.y1) / 2.0});
+                } else {
+                    node->setParam("box_min", comp::Vec2{double(f.x0), double(f.y0)});
+                    node->setParam("box_max", comp::Vec2{double(f.x1), double(f.y1)});
+                }
             } catch (const comp::Error&) {  // input not ready yet: keep the default
             }
         }

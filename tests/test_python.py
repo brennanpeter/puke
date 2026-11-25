@@ -58,8 +58,9 @@ class TempDirTest(unittest.TestCase):
 class GraphTests(unittest.TestCase):
     def test_node_types(self):
         types = comp.node_types()
-        self.assertEqual(types[:8], ["Backdrop", "ColorSpace", "Constant", "Grade", "Merge", "Read", "Transform", "Write"])
-        self.assertTrue(all(t.startswith("ofx:") for t in types[8:]))
+        builtin = ["Backdrop", "Blur", "ColorSpace", "Constant", "Crop", "Grade", "Merge", "Premult", "Read", "Reformat", "Shuffle", "Transform", "Unpremult", "Write"]
+        self.assertEqual(types[:len(builtin)], builtin)
+        self.assertTrue(all(t.startswith("ofx:") for t in types[len(builtin):]))
 
     def test_create_names_and_params(self):
         g = comp.Graph()
@@ -77,8 +78,8 @@ class GraphTests(unittest.TestCase):
             g["Nope"]
         with self.assertRaisesRegex(comp.Error, "a node named 'Hero' already exists"):
             g.create("Grade", "Hero")
-        with self.assertRaisesRegex(comp.Error, "unknown node type 'Blur'"):
-            g.create("Blur")
+        with self.assertRaisesRegex(comp.Error, "unknown node type 'Defocus'"):
+            g.create("Defocus")
         # A failed create adds nothing.
         self.assertEqual(len(g), 3)
 
@@ -453,8 +454,8 @@ class ProjectTests(TempDirTest):
                                  '{"name": "G", "type": "Grade", "params": {"mix": 0.5}}]}')
         self.assertEqual(g["G"]["mix"], 0.5)
         self.assertIn('"mix": 0.5', g.to_json())
-        with self.assertRaisesRegex(comp.Error, "unknown node type 'Blur'"):
-            comp.Graph.from_json('{"format": "comp", "version": 1, "nodes": [{"name": "B", "type": "Blur"}]}')
+        with self.assertRaisesRegex(comp.Error, "unknown node type 'Defocus'"):
+            comp.Graph.from_json('{"format": "comp", "version": 1, "nodes": [{"name": "B", "type": "Defocus"}]}')
         with self.assertRaisesRegex(comp.Error, "cannot open project"):
             comp.Graph.load(self.path("missing.comp"))
 

@@ -221,8 +221,8 @@ static void testErrors() {
     CHECK_THROWS(projectFromJson(wrap(R"({"type": "Grade"})"), "p"), "p: node 1: missing 'name'");
     CHECK_THROWS(projectFromJson(wrap(R"({"name": "G", "type": "Grade", "colour": 1})"), "p"),
                  "p: node 1 (G): unknown key 'colour'");
-    CHECK_THROWS(projectFromJson(wrap(R"({"name": "B", "type": "Blur"})"), "p"),
-                 "p: node 1 (B): unknown node type 'Blur'");
+    CHECK_THROWS(projectFromJson(wrap(R"({"name": "B", "type": "Defocus"})"), "p"),
+                 "p: node 1 (B): unknown node type 'Defocus'");
     CHECK_THROWS(projectFromJson(wrap(R"({"name": "G", "type": "Grade"}, {"name": "G", "type": "Grade"})"), "p"),
                  "p: node 2 (G): a node named 'G' already exists");
     CHECK_THROWS(projectFromJson(wrap(R"({"name": "G", "type": "Grade", "inputs": ["Nope"]})"), "p"),

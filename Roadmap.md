@@ -88,15 +88,20 @@ Key decisions:
   settings, set in Edit > Project Settings with common presets), carried
   to every node in the render context and part of the cache key.
   Constant, the first generator, makes it (or a size of its own).
+- [x] **More nodes**: Crop, Reformat (Nuke's resize modes, sharing
+  Transform's filters), Shuffle (with an optional second input),
+  Premult/Unpremult and Blur (gaussian or box, separable). Nodes can read
+  their inputs' infos while rendering (Node::inputInfo()).
 
 ## Next
 
 In planned order. Items further down are less settled.
 
-### 1. Generators and more nodes
-OFX generators (the project format is now there for them), plus the
-built-in nodes a compositor can't do without: Blur, Crop, Reformat,
-Shuffle (channels), Premult/Unpremult, Roto.
+### 1. Roto and OFX generators
+Roto: shapes drawn in the viewer, rendered as mattes (Bezier splines,
+feather, animation of the points, so it needs keyframes; the biggest
+single node). OFX generators: plugins with no inputs, given the project
+format as their frame.
 
 ### 2. GUI, third milestone
 Left over from the second, each needing groundwork first:

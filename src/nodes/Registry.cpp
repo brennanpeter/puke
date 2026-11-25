@@ -6,6 +6,11 @@
 #include "comp/nodes/BackdropNode.h"
 #include "comp/nodes/ColorSpaceNode.h"
 #include "comp/nodes/ConstantNode.h"
+#include "comp/nodes/ShuffleNode.h"
+#include "comp/nodes/ReformatNode.h"
+#include "comp/nodes/PremultNode.h"
+#include "comp/nodes/CropNode.h"
+#include "comp/nodes/BlurNode.h"
 #include "comp/nodes/GradeNode.h"
 #include "comp/nodes/MergeNode.h"
 #include "comp/nodes/ReadNode.h"
@@ -27,12 +32,18 @@ Factory make() {
 const std::map<std::string, Factory>& registry() {
     static const std::map<std::string, Factory> types{
         {"Backdrop", make<BackdropNode>()},
+        {"Blur", make<BlurNode>()},
         {"ColorSpace", make<ColorSpaceNode>()},
         {"Constant", make<ConstantNode>()},
+        {"Crop", make<CropNode>()},
         {"Grade", make<GradeNode>()},
         {"Merge", make<MergeNode>()},
+        {"Premult", make<PremultNode>()},
         {"Read", make<ReadNode>()},
+        {"Reformat", make<ReformatNode>()},
+        {"Shuffle", make<ShuffleNode>()},
         {"Transform", make<TransformNode>()},
+        {"Unpremult", make<UnpremultNode>()},
         {"Write", make<WriteNode>()},
     };
     return types;
