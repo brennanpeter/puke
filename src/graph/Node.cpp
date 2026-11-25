@@ -51,10 +51,10 @@ Node::Node(std::string name) : name_(std::move(name)), id_(nextNodeId.fetch_add(
 const ParamMap& Node::params() const { return boundNode == this ? *boundParams : *params_; }
 
 void Node::setParam(const std::string& key, ParamValue value) {
+    if (animated(key)) setCurve(key, {});  // first: dropping a curve unsets the plain value too
     auto copy = std::make_shared<ParamMap>(*params_);
     (*copy)[key] = std::move(value);
     params_ = std::move(copy);
-    if (animated(key)) setCurve(key, {});
 }
 
 void Node::clearParam(const std::string& key) {

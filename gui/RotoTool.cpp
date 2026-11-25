@@ -26,7 +26,7 @@ RotoTool::RotoTool(Document& doc, QObject* parent) : QObject(parent), doc_(doc) 
         if (!node()) setDrawing(false);
         emit changed();
     });
-    connect(&doc_, &Document::paramChanged, this, [this](comp::Node* n) {
+    auto recheck = [this](comp::Node* n) {
         if (n != node()) return;
         // An undo may have taken away the selected point.
         const comp::Path path = shape();
@@ -35,7 +35,10 @@ RotoTool::RotoTool(Document& doc, QObject* parent) : QObject(parent), doc_(doc) 
             selected_.reset();
         if (drawingCurve_ >= int(path.curves().size())) drawingCurve_ = -1;
         emit changed();
-    });
+    };
+    connect(&doc_, &Document::paramChanged, this, recheck);
+    // An animated shape changes with the frame.
+    connect(&doc_, &Document::frameChanged, this, [this, recheck] { recheck(node()); });
 }
 
 comp::Node* RotoTool::node() const {
@@ -61,7 +64,9 @@ comp::Path RotoTool::shape() const {
     comp::Node* n = node();
     if (!n) return {};
     try {
-        return comp::Path::parse(n->param<std::string>("shape", ""));
+        const auto v = n->valueAt("shape", doc_.frame());  // animated shapes: as at this frame
+        const auto* s = v ? std::get_if<std::string>(&*v) : nullptr;
+        return comp::Path::parse(s ? *s : "");
     } catch (const comp::Error&) {
         return {};  // typed in wrong: the render says so; nothing to edit here
     }
