@@ -780,7 +780,8 @@ OfxHost* host() {
         p.setInt(kOfxImageEffectPropSupportsTiles, 0, 1);
         p.setInt(kOfxImageEffectPropTemporalClipAccess, 0, 0);
         p.setStrings(kOfxImageEffectPropSupportedComponents, {kOfxImageComponentRGBA, kOfxImageComponentAlpha});
-        p.setStrings(kOfxImageEffectPropSupportedContexts, {kOfxImageEffectContextFilter, kOfxImageEffectContextGeneral});
+        p.setStrings(kOfxImageEffectPropSupportedContexts,
+                     {kOfxImageEffectContextFilter, kOfxImageEffectContextGenerator, kOfxImageEffectContextGeneral});
         p.setStrings(kOfxImageEffectPropSupportedPixelDepths, {kOfxBitDepthFloat});
         p.setInt(kOfxImageEffectPropSupportsMultipleClipDepths, 0, 0);
         p.setInt(kOfxImageEffectPropSupportsMultipleClipPARs, 0, 0);
@@ -1010,12 +1011,15 @@ void Plugin::describe() {
         auto has = [](const std::vector<std::string>& v, const char* s) {
             return std::find(v.begin(), v.end(), s) != v.end();
         };
+        // The most specific first: a plugin offering Generator as well as
+        // General is a generator at heart.
         if (has(contexts, kOfxImageEffectContextFilter)) context = kOfxImageEffectContextFilter;
+        else if (has(contexts, kOfxImageEffectContextGenerator)) context = kOfxImageEffectContextGenerator;
         else if (has(contexts, kOfxImageEffectContextGeneral)) context = kOfxImageEffectContextGeneral;
         else {
             std::string list;
             for (const auto& c : contexts) list += (list.empty() ? "" : ", ") + c;
-            throw Error(who + " has no context comp can host yet (Filter or General); it offers: " +
+            throw Error(who + " has no context comp can host yet (Filter, Generator or General); it offers: " +
                         (list.empty() ? "none" : list));
         }
         if (!has(d.getStrings(kOfxImageEffectPropSupportedPixelDepths), kOfxBitDepthFloat))
@@ -1034,16 +1038,12 @@ void Plugin::describe() {
         if (!output) throw Error(who + " defined no Output clip");
         if (!has(output->getStrings(kOfxImageEffectPropSupportedComponents), kOfxImageComponentRGBA))
             throw Error(who + ": its output doesn't support RGBA images");
-        int inputs = 0;
         for (const auto& c : cd.clips) {
             if (c.get() == output) continue;
-            ++inputs;
             const auto comps = c->getStrings(kOfxImageEffectPropSupportedComponents);
             if (!has(comps, kOfxImageComponentRGBA) && !has(comps, kOfxImageComponentAlpha))
                 throw Error(who + ": clip '" + c->name + "' takes neither RGBA nor Alpha images");
         }
-        if (inputs == 0)
-            throw Error(who + " is a generator (it has no inputs); comp doesn't host generators yet");
     } catch (const Error& e) {
         error = e.what();
         throw;

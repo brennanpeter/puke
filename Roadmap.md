@@ -92,16 +92,18 @@ Key decisions:
   Transform's filters), Shuffle (with an optional second input),
   Premult/Unpremult and Blur (gaussian or box, separable). Nodes can read
   their inputs' infos while rendering (Node::inputInfo()).
+- [x] **OFX generators**: the Generator context (preferred over General
+  when a plugin offers both); plugins with no input connected get the
+  project format as their frame and default region of definition.
 
 ## Next
 
 In planned order. Items further down are less settled.
 
-### 1. Roto and OFX generators
-Roto: shapes drawn in the viewer, rendered as mattes (Bezier splines,
-feather, animation of the points, so it needs keyframes; the biggest
-single node). OFX generators: plugins with no inputs, given the project
-format as their frame.
+### 1. Roto
+Shapes drawn in the viewer, rendered as mattes: Bezier splines, feather,
+and animated points, so it needs keyframes first (the biggest single
+node).
 
 ### 2. GUI, third milestone
 Left over from the second, each needing groundwork first:
@@ -151,7 +153,7 @@ Smaller items already marked in the code:
   doesn't affect the viewed node.
   ThreadSanitizer reports remain inside Qt's own event posting (Qt isn't
   built with TSan); comp's data is race-free (`gui/`).
-- **OFX**: no generators (plugins without inputs), no animated parameters,
+- **OFX**: no animated parameters,
   no access to other frames than the one rendering, render scale 1 only,
   Linux bundles only. Plugins' own multithreading runs on one thread
   (comp already renders tiles on every core). Parametric parameters

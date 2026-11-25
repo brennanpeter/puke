@@ -17,12 +17,13 @@ namespace comp::ofx {
 // "ofx:net.sf.openfx.GammaPlugin", so it can be created by name (Graph,
 // project files, Python) like any built-in node.
 //
-// Supported: the Filter and General contexts (effects with at least one
-// input), float RGBA images (and Alpha for clips that only take alpha),
+// Supported: the Filter, Generator and General contexts (the first of
+// those a plugin offers; a generator's frame is the project format), float
+// RGBA images (and Alpha for clips that only take alpha),
 // tiles, the plugin's declared render thread safety, and parameters of type
 // integer, double, boolean, choice, string, 2D and colour.
 //
-// Not yet: generators (no inputs), interacts and overlays, animated
+// Not yet: interacts and overlays, animated
 // parameters, reading other frames than the one being rendered, render
 // scales other than 1, and macOS/Windows bundles.
 //

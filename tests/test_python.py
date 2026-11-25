@@ -397,8 +397,12 @@ class OfxTests(TempDirTest):
         gain["fail"] = True
         with self.assertRaisesRegex(comp.Error, "gain plugin asked to fail"):
             e.render(gain)
-        with self.assertRaisesRegex(comp.Error, "is a generator"):
-            g.create("ofx:org.comp.test.Generator")
+        # A generator makes the graph's project format.
+        g.format = (16, 8)
+        gen = g.create("ofx:org.comp.test.Generator")
+        img = e.render(gen)
+        self.assertEqual(img.region, comp.Box(0, 0, 16, 8))
+        self.assertEqual(img.pixel(0, 0)[3], 8.0)
 
 
 class ProjectTests(TempDirTest):
