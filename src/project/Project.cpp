@@ -109,6 +109,38 @@ ParamValue paramFromJson(const Where& where, const std::string& key, const Json&
     }
 }
 
+// {"curve": [[frame, value], [frame, value, "linear"], ...]}
+Curve curveFromJson(const Where& where, const std::string& key, const Json& j) {
+    auto bad = [&](const std::string& why) { where.fail("parameter '" + key + "': " + why); };
+    for (const auto& [k, v] : j.items())
+        if (k != "curve") bad("unknown key '" + k + "' (an animated parameter is {\"curve\": [[frame, value], ...]})");
+    auto it = j.find("curve");
+    if (it == j.end() || !it->is_array() || it->empty())
+        bad("an animated parameter needs a \"curve\": a list of [frame, value] keys");
+    Curve curve;
+    for (std::size_t i = 0; i < it->size(); ++i) {
+        const Json& k = (*it)[i];
+        const std::string which = "key " + std::to_string(i + 1);
+        if (!k.is_array() || k.size() < 2 || k.size() > 3) bad(which + " must be [frame, value] or [frame, value, interpolation]");
+        if (!k[0].is_number() || !std::isfinite(k[0].get<double>())) bad(which + ": the frame must be a number");
+        const double frame = k[0].get<double>();
+        if (curve.keyAt(frame)) bad(which + ": a second key at frame " + k[0].dump());
+        if (k[1].is_object()) bad(which + ": a key's value can't be animated itself");
+        const ParamValue value = paramFromJson(where, key, k[1]);
+        Curve::Interp interp = Curve::Interp::Smooth;
+        if (k.size() == 3) {
+            if (!k[2].is_string()) bad(which + ": the interpolation must be a string");
+            try {
+                interp = Curve::parseInterp(k[2].get<std::string>());
+            } catch (const Error& e) {
+                bad(which + ": " + e.what());
+            }
+        }
+        curve.setKey(frame, value, interp);
+    }
+    return curve;
+}
+
 }  // namespace
 
 namespace {
@@ -134,6 +166,18 @@ Json nodesJson(const Graph& graph, Include include) {
         Json params = Json::object();
         for (const auto& [key, value] : node->params())  // std::map: already sorted
             params[key] = paramToJson(*node, key, value);
+        for (const auto& [key, curve] : node->curves()) {  // animated: {"curve": [[frame, value, interp?], ...]}
+            Json keys = Json::array();
+            for (const auto& k : curve.keys()) {
+                Json entry = Json::array();
+                if (k.frame == std::floor(k.frame) && std::abs(k.frame) < 1e9) entry.push_back(static_cast<long long>(k.frame));
+                else entry.push_back(k.frame);
+                entry.push_back(paramToJson(*node, key, k.value));
+                if (k.interp != Curve::Interp::Smooth) entry.push_back(Curve::interpName(k.interp));
+                keys.push_back(std::move(entry));
+            }
+            params[key] = Json{{"curve", std::move(keys)}};
+        }
 
         Json entry{{"name", node->name()},
                    {"type", node->typeName()},
@@ -249,7 +293,10 @@ Graph projectFromJson(const std::string& text, const std::string& source) {
         }
         if (auto it = n.find("params"); it != n.end()) {
             if (!it->is_object()) where.fail(std::string("'params' must be an object, not ") + kindOf(*it));
-            for (const auto& [key, value] : it->items()) node->setParam(key, paramFromJson(where, key, value));
+            for (const auto& [key, value] : it->items()) {
+                if (value.is_object()) node->setCurve(key, curveFromJson(where, key, value));
+                else node->setParam(key, paramFromJson(where, key, value));
+            }
         }
         try {
             pending.emplace_back(&graph.add(std::move(node)), &n);

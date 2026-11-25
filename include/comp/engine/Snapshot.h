@@ -26,6 +26,7 @@ public:
         std::shared_ptr<const Node> keepAlive;  // null if the node isn't shared-owned
         const Node* node = nullptr;
         std::shared_ptr<const ParamMap> params;
+        std::shared_ptr<const CurveMap> curves;  // evaluated at the render's frame
         std::vector<int> inputs;  // index into entries() per input; -1 if unconnected
     };
 
@@ -36,6 +37,10 @@ public:
     // The part of this snapshot that feeds the output's input `index`, as a
     // snapshot whose output is that input. Throws Error if it's unconnected.
     Snapshot upstream(int index) const;
+
+    // This snapshot with every animated parameter evaluated at `frame`
+    // into a plain value (and no curves left). The engine renders these.
+    Snapshot at(double frame) const;
 
     // Inputs before the nodes that use them; the output is last.
     const std::vector<Entry>& entries() const { return entries_; }

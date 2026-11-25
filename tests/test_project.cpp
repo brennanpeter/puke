@@ -239,7 +239,7 @@ static void testErrors() {
     CHECK_THROWS(projectFromJson(wrap(R"({"name": "G", "type": "Grade", "params": {"gain": ["a", "b"]}})"), "p"),
                  "parameter 'gain': lists may only contain numbers");
     CHECK_THROWS(projectFromJson(wrap(R"({"name": "G", "type": "Grade", "params": {"gain": {"r": 1}}})"), "p"),
-                 "parameter 'gain': unsupported value: an object");
+                 "parameter 'gain': unknown key 'r' (an animated parameter is {\"curve\": [[frame, value], ...]})");
     CHECK_THROWS(projectFromJson(wrap(R"({"name": "G", "type": "Grade", "params": {"n": 3000000000}})"), "p"),
                  "parameter 'n': 3000000000 doesn't fit in a 32-bit int");
     CHECK_THROWS(projectFromJson(wrap(R"({"name": "G", "type": "Grade", "params": [1]})"), "p"),
