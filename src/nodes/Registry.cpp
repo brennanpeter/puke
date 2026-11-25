@@ -8,6 +8,7 @@
 #include "comp/nodes/ConstantNode.h"
 #include "comp/nodes/ShuffleNode.h"
 #include "comp/nodes/ReformatNode.h"
+#include "comp/nodes/RotoNode.h"
 #include "comp/nodes/PremultNode.h"
 #include "comp/nodes/CropNode.h"
 #include "comp/nodes/BlurNode.h"
@@ -41,6 +42,7 @@ const std::map<std::string, Factory>& registry() {
         {"Premult", make<PremultNode>()},
         {"Read", make<ReadNode>()},
         {"Reformat", make<ReformatNode>()},
+        {"Roto", make<RotoNode>()},
         {"Shuffle", make<ShuffleNode>()},
         {"Transform", make<TransformNode>()},
         {"Unpremult", make<UnpremultNode>()},

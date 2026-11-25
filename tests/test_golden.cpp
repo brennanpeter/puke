@@ -155,6 +155,18 @@ static std::vector<Case> cases() {
              return rf;
          }},
 
+        {"roto_feather", [](Graph& g) -> Node& {
+             // A curved shape with a straight side, feathered, over the plate.
+             Node& roto = g.add(createNode("Roto", "Roto1"));
+             g.connect(read(g, "BG", "bg.exr"), roto, 0);
+             roto.setParam("shape", std::string("M 20 10 C 50 0 80 20 70 40 L 30 55 C 10 50 5 25 20 10 Z"));
+             roto.setParam("feather", 5.0);
+             roto.setParam("output", std::string("rgba"));
+             roto.setParam("color", Color{1, 0.6, 0.2, 1});
+             roto.setParam("opacity", 0.8);
+             return roto;
+         }},
+
         {"merge_over", [](Graph& g) -> Node& {
              return merge(g, read(g, "BG", "bg.exr"), read(g, "FG", "fg.exr"), "over");
          }},

@@ -290,6 +290,7 @@ void PropertiesPanel::rebuild() {
                 break;
             }
             case Kind::String:
+            case Kind::Path:  // edited by drawing in the viewer; the text is there to read or paste
             case Kind::File: {
                 auto* edit = new QLineEdit;
                 h->addWidget(edit, 1);
