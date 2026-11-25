@@ -4,6 +4,8 @@
 #include <QTimer>
 #include <QWidget>
 
+#include <vector>
+
 class QDoubleSpinBox;
 class QLabel;
 class QSpinBox;
@@ -24,6 +26,8 @@ public:
     // The frame under x (clamped to the range), and back.
     int frameAt(double x) const;
     double xOf(double frame) const;
+    // Frames with a key on any parameter of the selected node, in order.
+    std::vector<double> keyFrames() const;
 
 protected:
     void paintEvent(QPaintEvent*) override;

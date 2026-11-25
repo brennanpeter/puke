@@ -26,7 +26,7 @@ protected:
     void insert(const std::shared_ptr<comp::Node>& n, std::size_t i) { doc_.rawInsert(n, i); }
     void take(comp::Node& n) { doc_.rawTake(n); }
     void connect(comp::Node* s, comp::Node& t, int i) { doc_.rawConnect(s, t, i); }
-    void setParam(comp::Node& n, const std::string& k, const std::optional<comp::ParamValue>& v) { doc_.rawSetParam(n, k, v); }
+    void setParam(comp::Node& n, const std::string& k, const Document::ParamState& s) { doc_.rawSetParam(n, k, s); }
     void move(comp::Node& n, const std::optional<comp::Vec2>& p) { doc_.rawMove(n, p); }
     void rename(comp::Node& n, const std::string& name) { doc_.rawRename(n, name); }
     void setSettings(const comp::ProjectSettings& s) { doc_.rawSetSettings(s); }
@@ -134,17 +134,14 @@ private:
 
 class SetParam : public DocCommand {
 public:
-    SetParam(Document& doc, comp::Node& node, std::string key, std::optional<comp::ParamValue> value)
-        : DocCommand(doc, (value ? "Set " : "Reset ") + QString::fromStdString(key)), node_(shared(&node)),
-          key_(std::move(key)), after_(std::move(value)) {
-        auto it = node.params().find(key_);
-        if (it != node.params().end()) before_ = it->second;
-    }
+    SetParam(Document& doc, comp::Node& node, std::string key, Document::ParamState after, const QString& text)
+        : DocCommand(doc, text), node_(shared(&node)), key_(std::move(key)),
+          before_(Document::paramState(node, key_)), after_(std::move(after)) {}
     int id() const override { return 1; }
-    // A run of changes to the same parameter is one step.
+    // A run of the same change to the same parameter (a slider drag) is one step.
     bool mergeWith(const QUndoCommand* other) override {
         auto* o = dynamic_cast<const SetParam*>(other);
-        if (!o || o->node_ != node_ || o->key_ != key_) return false;
+        if (!o || o->node_ != node_ || o->key_ != key_ || o->text() != text()) return false;
         after_ = o->after_;
         return true;
     }
@@ -154,7 +151,7 @@ public:
 private:
     NodePtr node_;
     std::string key_;
-    std::optional<comp::ParamValue> before_, after_;
+    Document::ParamState before_, after_;
 };
 
 class MoveNodes : public DocCommand {
@@ -290,8 +287,16 @@ void Document::rawConnect(comp::Node* source, comp::Node& target, int input) {
     emit renderNeeded();
 }
 
-void Document::rawSetParam(comp::Node& node, const std::string& key, const std::optional<comp::ParamValue>& value) {
-    if (value) node.setParam(key, *value);
+Document::ParamState Document::paramState(const comp::Node& node, const std::string& key) {
+    ParamState s;
+    if (const comp::Curve* c = node.curve(key)) s.curve = *c;
+    else if (auto it = node.params().find(key); it != node.params().end()) s.value = it->second;
+    return s;
+}
+
+void Document::rawSetParam(comp::Node& node, const std::string& key, const ParamState& state) {
+    if (state.curve && !state.curve->empty()) node.setCurve(key, *state.curve);
+    else if (state.value) node.setParam(key, *state.value);
     else node.clearParam(key);
     emit paramChanged(&node);
     emit renderNeeded();
@@ -369,15 +374,53 @@ void Document::moveNodes(const std::vector<std::pair<comp::Node*, QPointF>>& mov
     undo_.push(new MoveNodes(*this, moves));
 }
 
+void Document::pushParam(comp::Node& node, const std::string& key, ParamState after, const QString& text) {
+    if (after == paramState(node, key)) return;
+    undo_.push(new SetParam(*this, node, key, std::move(after), text));
+}
+
 void Document::setParam(comp::Node& node, const std::string& key, comp::ParamValue value) {
-    auto it = node.params().find(key);
-    if (it != node.params().end() && it->second == value) return;
-    undo_.push(new SetParam(*this, node, key, std::move(value)));
+    if (node.animated(key)) {
+        setKey(node, key, std::move(value));
+        return;
+    }
+    pushParam(node, key, {std::move(value), std::nullopt}, "Set " + QString::fromStdString(key));
 }
 
 void Document::clearParam(comp::Node& node, const std::string& key) {
-    if (!node.hasParam(key)) return;
-    undo_.push(new SetParam(*this, node, key, std::nullopt));
+    pushParam(node, key, {}, "Reset " + QString::fromStdString(key));
+}
+
+void Document::setKey(comp::Node& node, const std::string& key, comp::ParamValue value) {
+    comp::Curve c = node.curve(key) ? *node.curve(key) : comp::Curve{};
+    c.setKey(frame_, std::move(value));
+    // The frame is in the name, so keys at different frames are different
+    // steps (a drag at one frame still merges into one).
+    pushParam(node, key, {std::nullopt, std::move(c)},
+              QString("Key %1 at frame %2").arg(QString::fromStdString(key)).arg(frame_));
+}
+
+void Document::removeKey(comp::Node& node, const std::string& key) {
+    const comp::Curve* old = node.curve(key);
+    if (!old || !old->keyAt(frame_)) return;
+    comp::Curve c = *old;
+    const comp::ParamValue last = c.keyAt(frame_)->value;
+    c.removeKey(frame_);
+    ParamState after = c.empty() ? ParamState{last, std::nullopt} : ParamState{std::nullopt, std::move(c)};
+    pushParam(node, key, std::move(after), "Delete key on " + QString::fromStdString(key));
+}
+
+void Document::removeAnimation(comp::Node& node, const std::string& key) {
+    if (!node.animated(key)) return;
+    pushParam(node, key, {node.valueAt(key, frame_), std::nullopt}, "Remove animation of " + QString::fromStdString(key));
+}
+
+void Document::setInterp(comp::Node& node, const std::string& key, comp::Curve::Interp interp) {
+    const comp::Curve* old = node.curve(key);
+    if (!old || !old->keyAt(frame_)) return;
+    comp::Curve c = *old;
+    c.setInterp(frame_, interp);
+    pushParam(node, key, {std::nullopt, std::move(c)}, "Interpolation of " + QString::fromStdString(key));
 }
 
 void Document::renameNode(comp::Node& node, const std::string& name) {

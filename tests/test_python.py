@@ -483,6 +483,7 @@ class ProjectTests(TempDirTest):
         n.set_key("gamma", 1, 1.0)
         n["gamma"] = 2.0
         self.assertFalse(n.animated("gamma"))
+        self.assertEqual(n["gamma"], 2.0)
         self.assertEqual(n.keys("gamma"), [])
 
     def test_json_text(self):

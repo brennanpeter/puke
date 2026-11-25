@@ -8,6 +8,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -86,6 +87,7 @@ PropertiesPanel::PropertiesPanel(Document& doc, QWidget* parent) : QScrollArea(p
     connect(&doc_, &Document::paramChanged, this, [this](comp::Node* n) {
         if (n == node_) refresh();
     });
+    connect(&doc_, &Document::frameChanged, this, &PropertiesPanel::refresh);  // animated values
     rebuild();
 }
 
@@ -157,6 +159,7 @@ void PropertiesPanel::rebuild() {
         auto* label = new QLabel(QString::fromStdString(spec.label.empty() ? spec.name : spec.label));
         label->setToolTip(QString::fromStdString(spec.hint));
         auto* reset = new QToolButton;
+        reset->setObjectName(QString::fromStdString("reset_" + key));
         reset->setText(QString::fromUtf8("↺"));
         reset->setToolTip("Reset to default");
         reset->setAutoRaise(true);
@@ -167,11 +170,40 @@ void PropertiesPanel::rebuild() {
         auto* h = new QHBoxLayout(row);
         h->setContentsMargins(0, 0, 0, 0);
 
-        // The value shown: the node's, or the default.
-        auto current = [&node, key, def = spec.defaultValue]() -> comp::ParamValue {
-            auto it = node.params().find(key);
-            return it != node.params().end() ? it->second : def;
+        // The value shown: the node's at the current frame, or the default.
+        auto current = [this, &node, key, def = spec.defaultValue]() -> comp::ParamValue {
+            return node.valueAt(key, doc_.frame()).value_or(def);
         };
+
+        // The key button: hollow when not animated, hollow and coloured when
+        // animated between keys, filled on a key. Click sets or removes a key
+        // at the current frame; right-click for interpolation and more.
+        auto* keyButton = new QToolButton;
+        keyButton->setObjectName(QString::fromStdString("key_" + key));
+        keyButton->setAutoRaise(true);
+        keyButton->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(keyButton, &QToolButton::clicked, this, [this, &node, key, current] {
+            const comp::Curve* c = node.curve(key);
+            if (c && c->keyAt(doc_.frame())) doc_.removeKey(node, key);
+            else doc_.setKey(node, key, current());
+        });
+        connect(keyButton, &QToolButton::customContextMenuRequested, this, [this, &node, key, current, keyButton](QPoint at) {
+            const comp::Curve* c = node.curve(key);
+            const comp::Curve::Key* k = c ? c->keyAt(doc_.frame()) : nullptr;
+            QMenu menu;
+            menu.addAction("Set key", [this, &node, key, current] { doc_.setKey(node, key, current()); });
+            menu.addAction("Delete key", [this, &node, key] { doc_.removeKey(node, key); })->setEnabled(k != nullptr);
+            menu.addAction("Remove animation", [this, &node, key] { doc_.removeAnimation(node, key); })->setEnabled(c != nullptr);
+            menu.addSeparator();
+            using I = comp::Curve::Interp;
+            for (auto [interp, name] : {std::pair{I::Smooth, "Smooth"}, {I::Linear, "Linear"}, {I::Constant, "Constant"}}) {
+                QAction* a = menu.addAction(name, [this, &node, key, interp] { doc_.setInterp(node, key, interp); });
+                a->setCheckable(true);
+                a->setChecked(k && k->interp == interp);
+                a->setEnabled(k != nullptr);
+            }
+            menu.exec(keyButton->mapToGlobal(at));
+        });
         std::function<void()> refreshValue;
 
         switch (spec.kind) {
@@ -201,9 +233,9 @@ void PropertiesPanel::rebuild() {
                     else doc_.setParam(node, key, v);
                 });
                 const bool optional = spec.optional;
-                refreshValue = [box, current, &node, key, optional] {
+                refreshValue = [this, box, current, &node, key, optional] {
                     QSignalBlocker b(box);
-                    if (optional && !node.hasParam(key)) box->setValue(box->minimum());
+                    if (optional && !node.valueAt(key, doc_.frame())) box->setValue(box->minimum());
                     else box->setValue(static_cast<int>(asNumber(current())));
                 };
                 break;
@@ -318,16 +350,24 @@ void PropertiesPanel::rebuild() {
                 break;
             }
         }
+        h->addWidget(keyButton);
         h->addWidget(reset);
         form->addRow(label, row);
 
-        refreshers_.push_back([refreshValue, label, reset, &node, key] {
+        refreshers_.push_back([this, refreshValue, label, reset, keyButton, &node, key] {
             refreshValue();
-            const bool set = node.hasParam(key);
+            const comp::Curve* c = node.curve(key);
+            const bool set = c || node.hasParam(key);
             QFont f = label->font();
             f.setBold(set);
             label->setFont(f);
             reset->setEnabled(set);
+            const bool onKey = c && c->keyAt(doc_.frame());
+            keyButton->setText(onKey ? QString::fromUtf8("◆") : QString::fromUtf8("◇"));
+            keyButton->setStyleSheet(c ? "color: #f0a040;" : "color: #777;");
+            keyButton->setToolTip(!c ? "Animate: set a key at this frame"
+                                     : onKey ? "Delete the key at this frame (right-click for more)"
+                                             : "Set a key at this frame (right-click for more)");
         });
     }
 
