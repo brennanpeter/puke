@@ -343,6 +343,8 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
                                })
         .def("__getitem__",
              [](const NodeRef& n, const std::string& key) {
+                 if (n.get().animated(key))
+                     throw comp::Error(n.get().name() + ": '" + key + "' is animated; read it with value_at(key, frame)");
                  const auto& params = n.get().params();
                  auto it = params.find(key);
                  if (it == params.end()) throw py::key_error(key);
@@ -350,10 +352,55 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
              })
         .def("__setitem__", [](const NodeRef& n, const std::string& key,
                                py::handle value) { n.get().setParam(key, toParam(key, value)); })
-        .def("__contains__", [](const NodeRef& n, const std::string& key) { return n.get().hasParam(key); })
+        .def("__contains__",
+             [](const NodeRef& n, const std::string& key) { return n.get().hasParam(key) || n.get().animated(key); })
+        // --- animation
+        .def(
+            "set_key",
+            [](const NodeRef& n, const std::string& key, double frame, py::handle value, const std::string& interp) {
+                Node& node = n.get();
+                comp::Curve c = node.curve(key) ? *node.curve(key) : comp::Curve{};
+                c.setKey(frame, toParam(key, value), comp::Curve::parseInterp(interp));
+                node.setCurve(key, std::move(c));
+            },
+            "key"_a, "frame"_a, "value"_a, "interp"_a = "smooth",
+            "Sets a keyframe, animating the parameter (its plain value is replaced). interp: smooth, linear or "
+            "constant, for the segment after this key.")
+        .def(
+            "remove_key",
+            [](const NodeRef& n, const std::string& key, double frame) {
+                Node& node = n.get();
+                if (!node.curve(key)) return false;
+                comp::Curve c = *node.curve(key);
+                const bool had = c.removeKey(frame);
+                node.setCurve(key, std::move(c));  // the last key gone: unset
+                return had;
+            },
+            "key"_a, "frame"_a, "Removes the key at frame; returns whether there was one.")
+        .def(
+            "keys",
+            [](const NodeRef& n, const std::string& key) {
+                py::list out;
+                if (const comp::Curve* c = n.get().curve(key))
+                    for (const auto& k : c->keys())
+                        out.append(py::make_tuple(k.frame, fromParam(k.value), comp::Curve::interpName(k.interp)));
+                return out;
+            },
+            "key"_a, "The keys of an animated parameter, as (frame, value, interp); [] if it isn't animated.")
+        .def("animated", [](const NodeRef& n, const std::string& key) { return n.get().animated(key); }, "key"_a)
+        .def(
+            "value_at",
+            [](const NodeRef& n, const std::string& key, double frame) {
+                const auto v = n.get().valueAt(key, frame);
+                if (!v) throw py::key_error(key);
+                return fromParam(*v);
+            },
+            "key"_a, "frame"_a, "The parameter's value at frame, animated or not.")
         .def(
             "get",
             [](const NodeRef& n, const std::string& key, py::object fallback) {
+                if (n.get().animated(key))
+                    throw comp::Error(n.get().name() + ": '" + key + "' is animated; read it with value_at(key, frame)");
                 const auto& params = n.get().params();
                 auto it = params.find(key);
                 return it == params.end() ? fallback : fromParam(it->second);

@@ -15,12 +15,10 @@
 #include "comp/core/Hash.h"
 #include "comp/core/Format.h"
 #include "comp/core/Image.h"
+#include "comp/graph/Curve.h"
+#include "comp/graph/Param.h"
 
 namespace comp {
-
-struct Error : std::runtime_error {
-    using std::runtime_error::runtime_error;
-};
 
 // Everything a render request needs besides the region.
 // Time is a double so retiming and motion blur can sample sub-frames later.
@@ -30,12 +28,6 @@ struct RenderContext {
     // their size from) produce. Callers fill it from Graph::settings().
     Format format;
 };
-
-using Vec2 = std::array<double, 2>;   // x, y
-using Color = std::array<double, 4>;  // r, g, b, a
-
-using ParamValue = std::variant<bool, int, double, std::string, Vec2, Color>;
-using ParamMap = std::map<std::string, ParamValue>;
 
 // Describes one parameter of a node type, for user interfaces (a properties
 // panel builds its controls from these) and documentation. Rendering never
@@ -152,6 +144,29 @@ public:
     // The current values, shared: they never change once taken.
     std::shared_ptr<const ParamMap> paramsSnapshot() const { return params_; }
 
+    // --- animation ---
+    // A parameter is either a plain value (above) or animated: a Curve of
+    // keyframes. Renders see animated parameters evaluated at the frame
+    // being rendered, like plain ones. Outside a render, params() and
+    // param() see only plain values: read animated ones with valueAt().
+    //
+    // setParam() and clearParam() replace any animation.
+    const CurveMap& curves() const { return *curves_; }
+    std::shared_ptr<const CurveMap> curvesSnapshot() const { return curves_; }
+    bool animated(const std::string& key) const { return curves_->count(key) > 0; }
+    const Curve* curve(const std::string& key) const;
+    // Animates `key` with `curve` (replacing its plain value); an empty
+    // curve removes the animation, leaving the parameter unset.
+    void setCurve(const std::string& key, Curve curve);
+    // The value at `frame`, animated or not; nullopt if unset.
+    std::optional<ParamValue> valueAt(const std::string& key, double frame) const;
+    // All parameters, animated ones evaluated at `frame`.
+    ParamMap paramsAt(double frame) const;
+    // `params` with `curves` evaluated at `frame` on top. Shares `params`
+    // when there's no animation.
+    static std::shared_ptr<const ParamMap> evaluate(const std::shared_ptr<const ParamMap>& params,
+                                                    const CurveMap& curves, double frame);
+
     template <typename T>
     T param(const std::string& key) const {
         const ParamMap& ps = params();
@@ -215,6 +230,7 @@ private:
     std::uint64_t id_;
     std::vector<Node*> inputs_;  // non-owning; the Graph owns nodes
     std::shared_ptr<const ParamMap> params_;  // never null; replaced, never modified
+    std::shared_ptr<const CurveMap> curves_;  // the same
     std::optional<Vec2> position_;
 };
 

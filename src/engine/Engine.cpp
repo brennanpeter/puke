@@ -139,14 +139,15 @@ std::size_t Engine::cacheBytesUsed() const { return cache_ ? cache_->bytesUsed()
 ImageInfo Engine::info(const Node& output, const RenderContext& ctx) { return info(Snapshot::of(output), ctx); }
 
 ImageInfo Engine::info(const Snapshot& snapshot, const RenderContext& ctx) {
-    return computeInfos(snapshot, ctx).back();
+    return computeInfos(snapshot.at(ctx.frame), ctx).back();
 }
 
 Image Engine::render(const Node& output, const RenderContext& ctx, const Box& region) {
     return render(Snapshot::of(output), ctx, region);
 }
 
-Image Engine::render(const Snapshot& snap, const RenderContext& ctx, const Box& region) {
+Image Engine::render(const Snapshot& animated, const RenderContext& ctx, const Box& region) {
+    const Snapshot snap = animated.at(ctx.frame);  // parameters as they are at this frame
     stats_ = {};
     const auto& entries = snap.entries();
     const std::vector<ImageInfo> infos = computeInfos(snap, ctx);

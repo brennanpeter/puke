@@ -53,6 +53,7 @@ Snapshot Snapshot::of(const Node& output) {
         e.keepAlive = node->weak_from_this().lock();
         e.node = node;
         e.params = node->paramsSnapshot();
+        e.curves = node->curvesSnapshot();
         e.inputs.assign(node->maxInputs(), -1);
         for (int j = 0; j < node->maxInputs(); ++j)
             if (const Node* in = node->input(j)) e.inputs[j] = index.at(in);
@@ -85,6 +86,16 @@ Snapshot Snapshot::upstream(int index) const {
         snap.entries_.push_back(std::move(e));
     }
     return snap;
+}
+
+Snapshot Snapshot::at(double frame) const {
+    Snapshot out = *this;
+    for (Entry& e : out.entries_) {
+        if (!e.curves || e.curves->empty()) continue;
+        e.params = Node::evaluate(e.params, *e.curves, frame);
+        e.curves = nullptr;
+    }
+    return out;
 }
 
 }  // namespace comp
