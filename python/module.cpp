@@ -376,7 +376,7 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
         .def_property_readonly(
             "param_specs",
             [](const NodeRef& n) {
-                static const char* kinds[] = {"bool", "int", "float", "str", "file", "choice", "vec2", "color"};
+                static const char* kinds[] = {"bool", "int", "float", "str", "file", "choice", "vec2", "color", "path"};
                 py::list out;
                 for (const auto& s : n.get().paramSpecs()) {
                     py::dict d;
