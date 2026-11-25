@@ -14,6 +14,7 @@ struct ProjectSettings {
     int firstFrame = 1;  // the frame range comp_render and the GUI's timeline use
     int lastFrame = 1;
     double fps = 24;     // playback speed; nothing renders differently
+    Format format;       // what generators produce (RenderContext::format)
 
     bool operator==(const ProjectSettings&) const = default;
 };
@@ -55,7 +56,8 @@ public:
     void rename(Node& node, const std::string& name);
 
     const ProjectSettings& settings() const { return settings_; }
-    // Throws if lastFrame < firstFrame or fps isn't positive.
+    // Throws if lastFrame < firstFrame, fps isn't positive or the format
+    // isn't 1 to 65536 pixels each way.
     void setSettings(const ProjectSettings& settings);
 
     // Nodes that use `node` as an input.

@@ -16,6 +16,7 @@
 
 #include "Document.h"
 #include "NodeGraphView.h"
+#include "ProjectSettingsDialog.h"
 #include "PropertiesPanel.h"
 #include "RenderDialog.h"
 #include "Timeline.h"
@@ -111,6 +112,10 @@ MainWindow::MainWindow() {
     graphAction("&Copy", QKeySequence::Copy, [this] { graph_->copySelection(); });
     graphAction("&Paste", QKeySequence::Paste, [this] { graph_->paste(); });
     graphAction("D&uplicate", QKeySequence(Qt::CTRL | Qt::Key_D), [this] { graph_->duplicateSelection(); });
+    graphAction("Project &Settings...", QKeySequence(Qt::Key_S), [this] {
+        ProjectSettingsDialog dialog(*doc_, this);
+        dialog.exec();
+    });
     edit->addSeparator();
     edit->addAction("&Rename... (F2)", this, [this] { graph_->renameSelected(); });
     edit->addAction("&Delete nodes", QKeySequence::Delete, this, [this] { doc_->removeNodes(graph_->selectedNodes()); });

@@ -71,7 +71,8 @@ void hashParam(Hasher& h, const ParamValue& v) {
 }
 
 // Each node's cache key, bottom-up: the node's identity, type and
-// parameters, the frame, its inputs' hashes, and whatever appendHash() adds.
+// parameters, the frame and format, its inputs' hashes, and whatever
+// appendHash() adds.
 std::vector<std::uint64_t> computeHashes(const Snapshot& snap, const RenderContext& ctx) {
     const auto& entries = snap.entries();
     std::vector<std::uint64_t> hashes(entries.size());
@@ -79,6 +80,7 @@ std::vector<std::uint64_t> computeHashes(const Snapshot& snap, const RenderConte
         const Entry& e = entries[i];
         Hasher h;
         h.add(e.node->id()).add(std::string_view(e.node->typeName())).add(ctx.frame);
+        h.add(ctx.format.width).add(ctx.format.height);
         h.add(e.params->size());
         for (const auto& [key, value] : *e.params) {  // std::map: sorted, so order is stable
             h.add(std::string_view(key));

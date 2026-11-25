@@ -5,6 +5,7 @@
 
 #include "comp/nodes/BackdropNode.h"
 #include "comp/nodes/ColorSpaceNode.h"
+#include "comp/nodes/ConstantNode.h"
 #include "comp/nodes/GradeNode.h"
 #include "comp/nodes/MergeNode.h"
 #include "comp/nodes/ReadNode.h"
@@ -27,6 +28,7 @@ const std::map<std::string, Factory>& registry() {
     static const std::map<std::string, Factory> types{
         {"Backdrop", make<BackdropNode>()},
         {"ColorSpace", make<ColorSpaceNode>()},
+        {"Constant", make<ConstantNode>()},
         {"Grade", make<GradeNode>()},
         {"Merge", make<MergeNode>()},
         {"Read", make<ReadNode>()},

@@ -29,6 +29,7 @@ class Document;
 struct ViewRequest {
     std::shared_ptr<comp::Snapshot> snapshot;
     double frame = 1;
+    comp::Format format;  // the project's
     std::string display, view;
     double exposure = 0;  // stops
     int channel = 0;      // 0 RGB, 1 R, 2 G, 3 B, 4 A
@@ -163,6 +164,7 @@ private:
     QDoubleSpinBox* exposure_;
     QComboBox* channel_;
     quint64 serial_ = 0;
+    comp::Format format_;  // the project format the latest render used
     quint64 shown_ = 0;  // serial of what's on screen
 
     struct Cached {

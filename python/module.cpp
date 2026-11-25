@@ -157,7 +157,8 @@ std::string reprChannels(const comp::ChannelList& c) {
     return s + "]";
 }
 
-comp::RenderContext context(double frame) { return comp::RenderContext{frame}; }
+// A render at `frame` of a node in `graph`, in the graph's project format.
+comp::RenderContext context(const Graph& graph, double frame) { return comp::RenderContext{frame, graph.settings().format}; }
 
 // What Python's Engine wraps: an engine plus a lock, because renders run
 // without the GIL and an Engine renders one thing at a time.
@@ -301,18 +302,19 @@ may keep editing it. One Engine renders one thing at a time.)")
             "info",
             [](PyEngine& e, const NodeRef& n, double frame) {
                 const auto snap = comp::Snapshot::of(n.get());  // with the GIL: nothing edits meanwhile
+                const auto ctx = context(*n.graph, frame);
                 py::gil_scoped_release nogil;
                 std::lock_guard lock(e.mutex);
-                return e.engine.info(snap, context(frame));
+                return e.engine.info(snap, ctx);
             },
             "node"_a, "frame"_a = 1.0)
         .def(
             "render",
             [](PyEngine& e, const NodeRef& n, std::optional<Box> region, double frame) {
                 const auto snap = comp::Snapshot::of(n.get());
+                const auto ctx = context(*n.graph, frame);
                 py::gil_scoped_release nogil;
                 std::lock_guard lock(e.mutex);
-                const auto ctx = context(frame);
                 return e.engine.render(snap, ctx, region ? *region : e.engine.info(snap, ctx).dataWindow);
             },
             "node"_a, "region"_a = py::none(), "frame"_a = 1.0,
@@ -422,7 +424,7 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
                 if (!write) throw py::type_error(n.get().name() + " is a " + n.get().typeName() +
                                                  " node; only Write nodes can be executed");
                 std::lock_guard lock(engine.mutex);  // the GIL stays held: execute() snapshots part-way
-                return write->execute(engine.engine, context(frame));
+                return write->execute(engine.engine, context(*n.graph, frame));
             },
             "engine"_a, "frame"_a = 1.0, "Write nodes only: renders and writes one frame. Returns the path written.")
         .def("__eq__", [](const NodeRef& a, const NodeRef& b) { return a.node == b.node && a.id == b.id; })
@@ -494,6 +496,14 @@ Color space names may also be OCIO roles ("scene_linear", "matte_paint").)")
                 g.setSettings(s);
             },
             "Playback speed in frames per second.")
+        .def_property(
+            "format", [](const Graph& g) { return std::make_pair(g.settings().format.width, g.settings().format.height); },
+            [](Graph& g, std::pair<int, int> wh) {
+                comp::ProjectSettings s = g.settings();
+                s.format = {wh.first, wh.second};
+                g.setSettings(s);
+            },
+            "The project's (width, height): what generators such as Constant produce. Renders use it.")
         .def(
             "create",
             [](const std::shared_ptr<Graph>& g, const std::string& type, std::optional<std::string> name,

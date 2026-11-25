@@ -153,7 +153,10 @@ std::string projectToJson(const Graph& graph) {
     Json doc{{"format", "comp"}, {"version", kProjectFormatVersion}};
     const ProjectSettings& s = graph.settings();
     if (s != ProjectSettings{})  // left out when default, like a node's position
-        doc["settings"] = Json{{"first_frame", s.firstFrame}, {"last_frame", s.lastFrame}, {"fps", s.fps}};
+        doc["settings"] = Json{{"first_frame", s.firstFrame},
+                               {"last_frame", s.lastFrame},
+                               {"fps", s.fps},
+                               {"format", Json{{"width", s.format.width}, {"height", s.format.height}}}};
     doc["nodes"] = std::move(nodes);
     return doc.dump(2) + "\n";
 }
@@ -188,7 +191,7 @@ Graph projectFromJson(const std::string& text, const std::string& source) {
     if (auto it = doc.find("settings"); it != doc.end()) {
         const Where where{source, "settings"};
         if (!it->is_object()) where.fail(std::string("must be an object, not ") + kindOf(*it));
-        checkKeys(where, *it, {"first_frame", "last_frame", "fps"});
+        checkKeys(where, *it, {"first_frame", "last_frame", "fps", "format"});
         ProjectSettings s;
         auto frame = [&](const char* key, int& out) {
             if (!it->contains(key)) return;
@@ -201,6 +204,19 @@ Graph projectFromJson(const std::string& text, const std::string& source) {
         if (it->contains("fps")) {
             if (!(*it)["fps"].is_number()) where.fail("'fps' must be a number, not " + std::string(kindOf((*it)["fps"])));
             s.fps = (*it)["fps"].get<double>();
+        }
+        if (auto f = it->find("format"); f != it->end()) {
+            const Where fw{source, "settings: format"};
+            if (!f->is_object()) fw.fail(std::string("must be an object, not ") + kindOf(*f));
+            checkKeys(fw, *f, {"width", "height"});
+            auto size = [&](const char* key, int& out) {
+                if (!f->contains(key)) return;
+                const auto v = require(fw, *f, key, Json::value_t::number_integer, "a whole number").get<std::int64_t>();
+                if (v < 1 || v > 65536) fw.fail(std::string("'") + key + "' must be 1 to 65536");
+                out = static_cast<int>(v);
+            };
+            size("width", s.format.width);
+            size("height", s.format.height);
         }
         try {
             graph.setSettings(s);
