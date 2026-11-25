@@ -5,7 +5,7 @@
 #include <cmath>
 #include <limits>
 
-#include "comp/graph/Node.h"  // Error
+#include "comp/graph/Param.h"  // Error
 
 namespace comp {
 

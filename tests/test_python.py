@@ -453,6 +453,38 @@ class ProjectTests(TempDirTest):
         with self.assertRaisesRegex(comp.Error, "the format \\(0x32\\) must be"):
             g.format = (0, 32)
 
+    def test_animation(self):
+        g = comp.Graph()
+        n = g.create("Grade", "G")
+        n["multiply"] = 2.0
+        self.assertFalse(n.animated("multiply"))
+        n.set_key("multiply", 1, 1.0, "linear")
+        n.set_key("multiply", 11, 3.0)
+        self.assertTrue(n.animated("multiply") and "multiply" in n)
+        self.assertEqual(n.keys("multiply"), [(1.0, 1.0, "linear"), (11.0, 3.0, "smooth")])
+        self.assertAlmostEqual(n.value_at("multiply", 6), 2.0)
+        with self.assertRaisesRegex(comp.Error, "'multiply' is animated; read it with value_at"):
+            n["multiply"]
+        with self.assertRaisesRegex(comp.Error, "is animated"):
+            n.get("multiply")
+        with self.assertRaisesRegex(comp.Error, "unknown interpolation 'cubic'"):
+            n.set_key("multiply", 5, 1.0, "cubic")
+        # Saved and loaded.
+        back = comp.Graph.from_json(g.to_json())
+        self.assertEqual(back["G"].keys("multiply"), n.keys("multiply"))
+        # Removing keys; the last one gone leaves it unset.
+        self.assertTrue(n.remove_key("multiply", 1))
+        self.assertFalse(n.remove_key("multiply", 1))
+        self.assertTrue(n.remove_key("multiply", 11))
+        self.assertFalse(n.animated("multiply") or "multiply" in n)
+        with self.assertRaises(KeyError):
+            n.value_at("multiply", 1)
+        # Setting a plain value replaces animation.
+        n.set_key("gamma", 1, 1.0)
+        n["gamma"] = 2.0
+        self.assertFalse(n.animated("gamma"))
+        self.assertEqual(n.keys("gamma"), [])
+
     def test_json_text(self):
         g = comp.Graph.from_json('{"format": "comp", "version": 1, "nodes": ['
                                  '{"name": "G", "type": "Grade", "params": {"mix": 0.5}}]}')

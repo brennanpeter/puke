@@ -43,7 +43,10 @@ std::string WriteNode::execute(Engine& engine, const RenderContext& ctx) const {
 
 std::string WriteNode::execute(Engine& engine, const Snapshot& snapshot, const RenderContext& ctx) const {
     if (snapshot.output().node != this) throw Error(name() + ": the snapshot is of another node");
-    ParamScope scope(*this, *snapshot.output().params);  // our own parameters, as they were too
+    // Our own parameters too, as they were, at this frame.
+    const auto& self = snapshot.output();
+    const auto params = self.curves ? Node::evaluate(self.params, *self.curves, ctx.frame) : self.params;
+    ParamScope scope(*this, *params);
 
     const int frame = static_cast<int>(std::floor(ctx.frame + 0.5));
     const std::string path = expandFramePattern(param<std::string>("file"), frame);
