@@ -164,8 +164,8 @@ Smaller items already marked in the code:
   `node.params` lists plain values only (animated ones: `keys()`).
   ThreadSanitizer reports remain inside Qt's own event posting (Qt isn't
   built with TSan); comp's data is race-free (`gui/`).
-- **OFX**: no animated parameters,
-  no access to other frames than the one rendering, render scale 1 only,
+- **OFX**: no access to other frames than the one rendering (nor to
+  parameter values at other times), render scale 1 only,
   Linux bundles only. Plugins' own multithreading runs on one thread
   (comp already renders tiles on every core). Parametric parameters
   (curves) aren't hosted. Plugins are never unloaded (`src/ofx/`).
