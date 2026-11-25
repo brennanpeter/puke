@@ -16,12 +16,15 @@
 #include "comp/engine/Snapshot.h"
 
 class QComboBox;
+class QToolButton;
 class QTimer;
 class QDoubleSpinBox;
 class QLabel;
 class QSpinBox;
 
 namespace compgui {
+
+class RotoTool;
 
 class Document;
 
@@ -89,6 +92,12 @@ public:
     // The image pixels on screen, once the image has been placed (after
     // the first fit); before that, nothing is known.
     std::optional<comp::Box> visibleRegion() const;
+    // Image pixel coordinates -> widget coordinates, and back.
+    QPointF toWidget(QPointF image) const { return image * zoom_ + offset_; }
+    QPointF toImage(QPointF widget) const;
+    double zoom() const { return zoom_; }
+    // Takes mouse and key events first, and paints over the picture.
+    void setTool(RotoTool* tool);
 
 signals:
     void viewChanged();  // zoom, pan or size changed
@@ -99,13 +108,15 @@ protected:
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
     void keyPressEvent(QKeyEvent*) override;
+    bool event(QEvent*) override;
     void resizeEvent(QResizeEvent*) override;
 
 private:
-    QPointF toImage(QPointF widget) const;  // widget -> pixel coordinates
-
     ViewResult result_;
+    RotoTool* tool_ = nullptr;
+    bool toolDragging_ = false;
     QString message_;
     double zoom_ = 1;
     QPointF offset_;  // widget position of pixel (0, 0)
@@ -129,6 +140,7 @@ public:
     Viewer(Document& doc, QWidget* parent = nullptr);
     ~Viewer() override;
     ViewerCanvas* canvas() const { return canvas_; }
+    RotoTool* rotoTool() const { return roto_; }
 
     // Waiting for a render of what should be on screen.
     bool busy() const { return shown_ != serial_; }
@@ -181,7 +193,8 @@ private:
     std::mutex readyMutex_;
     std::optional<ViewResult> ready_;
     std::unique_ptr<RenderWorker> worker_;
-    QTimer* roiTimer_;  // gathers zooming and panning into one render
+    QTimer* roiTimer_;
+    RotoTool* roto_;  // gathers zooming and panning into one render
 };
 
 }  // namespace compgui

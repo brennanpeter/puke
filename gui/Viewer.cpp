@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QPainter>
 #include <QSpinBox>
+#include <QSignalBlocker>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -16,6 +17,7 @@
 #include <cmath>
 
 #include "Document.h"
+#include "RotoTool.h"
 #include "comp/color/ColorConfig.h"
 #include "comp/engine/Engine.h"
 
@@ -209,6 +211,12 @@ void ViewerCanvas::paintEvent(QPaintEvent*) {
         p.drawText(rect().adjusted(8, 6, -8, -6), Qt::AlignTop | Qt::AlignRight,
                    QString("%1x%2   %3%   %4 ms").arg(f.width()).arg(f.height()).arg(int(zoom_ * 100)).arg(result_.milliseconds, 0, 'f', 0));
     }
+    if (tool_) {
+        p.save();
+        tool_->paint(p, [this](QPointF q) { return toWidget(q); }, zoom_);
+        p.restore();
+        p.setPen(QColor(200, 200, 200));
+    }
     if (!readout_.isEmpty()) p.drawText(rect().adjusted(8, 6, -8, -6), Qt::AlignBottom | Qt::AlignLeft, readout_);
     const QString msg = !message_.isEmpty() ? message_ : result_.error;
     if (!msg.isEmpty()) {
@@ -227,16 +235,46 @@ void ViewerCanvas::wheelEvent(QWheelEvent* e) {
     emit viewChanged();
 }
 
+void ViewerCanvas::setTool(RotoTool* tool) {
+    tool_ = tool;
+    connect(tool, &RotoTool::changed, this, qOverload<>(&QWidget::update));
+}
+
+// Hits within 6 screen pixels.
+constexpr double kHitPixels = 6;
+
 void ViewerCanvas::mousePressEvent(QMouseEvent* e) {
+    setFocus();
     if (e->button() == Qt::MiddleButton || (e->button() == Qt::LeftButton && (e->modifiers() & Qt::AltModifier))) {
         panning_ = true;
         lastMouse_ = e->pos();
         fitted_ = false;
+        return;
     }
-    setFocus();
+    if (e->button() == Qt::LeftButton && tool_ && tool_->press(toImage(e->position()), kHitPixels / zoom_)) {
+        toolDragging_ = true;
+        update();
+    }
+}
+
+void ViewerCanvas::mouseDoubleClickEvent(QMouseEvent* e) {
+    if (e->button() == Qt::LeftButton && tool_ && tool_->doubleClick(toImage(e->position()), kHitPixels / zoom_))
+        return;
+    mousePressEvent(e);
+}
+
+bool ViewerCanvas::event(QEvent* e) {
+    // Keys the tool wants (Delete for a selected point) aren't the window's
+    // shortcuts here (Delete would remove the node).
+    if (e->type() == QEvent::ShortcutOverride && tool_ && tool_->wantsKey(static_cast<QKeyEvent*>(e)->key())) {
+        e->accept();
+        return true;
+    }
+    return QWidget::event(e);
 }
 
 void ViewerCanvas::mouseMoveEvent(QMouseEvent* e) {
+    if (toolDragging_ && tool_->move(toImage(e->position()))) return;
     if (panning_) {
         offset_ += e->pos() - lastMouse_;
         lastMouse_ = e->pos();
@@ -259,9 +297,16 @@ void ViewerCanvas::mouseMoveEvent(QMouseEvent* e) {
     update();
 }
 
-void ViewerCanvas::mouseReleaseEvent(QMouseEvent*) { panning_ = false; }
+void ViewerCanvas::mouseReleaseEvent(QMouseEvent* e) {
+    panning_ = false;
+    if (toolDragging_) {
+        toolDragging_ = false;
+        tool_->release(toImage(e->position()));
+    }
+}
 
 void ViewerCanvas::keyPressEvent(QKeyEvent* e) {
+    if (tool_ && tool_->key(e->key())) return;
     if (e->key() == Qt::Key_F) fit();
     else if (e->key() == Qt::Key_Home) oneToOne();
     else QWidget::keyPressEvent(e);
@@ -295,10 +340,25 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     channel_->addItems({"RGB", "R", "G", "B", "A"});
     auto* fit = new QToolButton;
     fit->setText("Fit");
+    // Draw mode for the selected Roto's shape; only there when one is.
+    auto* draw = new QToolButton;
+    draw->setObjectName("rotoDraw");
+    draw->setText("Draw shape");
+    draw->setCheckable(true);
+    draw->setToolTip("Click to add points, drag to pull handles; click the first point or press Enter to finish");
+    draw->setVisible(false);
     bar->addWidget(title_, 1);
-    for (QWidget* w : std::initializer_list<QWidget*>{channel_, exposure_, display_, view_, fit}) bar->addWidget(w);
+    for (QWidget* w : std::initializer_list<QWidget*>{draw, channel_, exposure_, display_, view_, fit}) bar->addWidget(w);
     layout->addLayout(bar);
     canvas_ = new ViewerCanvas;
+    roto_ = new RotoTool(doc_, this);
+    canvas_->setTool(roto_);
+    connect(draw, &QToolButton::toggled, roto_, &RotoTool::setDrawing);
+    connect(roto_, &RotoTool::drawingChanged, draw, [draw](bool on) {
+        QSignalBlocker b(draw);
+        draw->setChecked(on);
+    });
+    connect(&doc_, &Document::selectionChanged, draw, [this, draw] { draw->setVisible(roto_->node() != nullptr); });
     layout->addWidget(canvas_, 1);
 
     try {
