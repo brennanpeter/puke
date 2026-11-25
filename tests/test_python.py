@@ -58,7 +58,7 @@ class TempDirTest(unittest.TestCase):
 class GraphTests(unittest.TestCase):
     def test_node_types(self):
         types = comp.node_types()
-        builtin = ["Backdrop", "Blur", "ColorSpace", "Constant", "Crop", "Grade", "Merge", "Premult", "Read", "Reformat", "Shuffle", "Transform", "Unpremult", "Write"]
+        builtin = ["Backdrop", "Blur", "ColorSpace", "Constant", "Crop", "Grade", "Merge", "Premult", "Read", "Reformat", "Roto", "Shuffle", "Transform", "Unpremult", "Write"]
         self.assertEqual(types[:len(builtin)], builtin)
         self.assertTrue(all(t.startswith("ofx:") for t in types[len(builtin):]))
 

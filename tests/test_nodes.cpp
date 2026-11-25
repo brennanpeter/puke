@@ -539,7 +539,7 @@ static void testConstant() {
 
 static void testRegistry() {
     // Built-in types first, then any OFX plugins installed on this machine.
-    const std::vector<std::string> builtin{"Backdrop", "Blur", "ColorSpace", "Constant", "Crop", "Grade", "Merge", "Premult", "Read", "Reformat", "Shuffle", "Transform", "Unpremult", "Write"};
+    const std::vector<std::string> builtin{"Backdrop", "Blur", "ColorSpace", "Constant", "Crop", "Grade", "Merge", "Premult", "Read", "Reformat", "Roto", "Shuffle", "Transform", "Unpremult", "Write"};
     const auto all = nodeTypes();
     CHECK(all.size() >= builtin.size() && std::equal(builtin.begin(), builtin.end(), all.begin()));
     for (std::size_t i = builtin.size(); i < all.size(); ++i) CHECK(all[i].rfind("ofx:", 0) == 0);

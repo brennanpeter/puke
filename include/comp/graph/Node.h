@@ -41,7 +41,8 @@ using ParamMap = std::map<std::string, ParamValue>;
 // panel builds its controls from these) and documentation. Rendering never
 // depends on them: nodes read parameters by name, with their own defaults.
 struct ParamSpec {
-    enum class Kind { Bool, Int, Double, String, File, Choice, Vec2, Color };
+    // Path: a shape outline, stored as a string of SVG path data (see Path.h).
+    enum class Kind { Bool, Int, Double, String, File, Choice, Vec2, Color, Path };
 
     std::string name;
     Kind kind = Kind::Double;
