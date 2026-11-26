@@ -4,6 +4,8 @@
 #include <QWidget>
 
 #include <condition_variable>
+#include <cstdint>
+#include <deque>
 #include <functional>
 #include <list>
 #include <map>
@@ -44,6 +46,10 @@ struct ViewRequest {
     std::optional<comp::Box> visible;
     double scale = 1;  // proxy: render at this fraction of full size
     quint64 serial = 0;
+    // Caching ahead: not for the screen, only for the frame cache. The
+    // worker takes any request for the screen first.
+    bool background = false;
+    std::uint64_t key = 0;  // the frame cache's key for this picture (see Viewer)
 };
 
 struct ViewResult {
@@ -60,11 +66,15 @@ struct ViewResult {
     comp::Box fullFrame;   // the display window at full size (for drawing)
     QString error;
     double milliseconds = 0;
+    bool background = false;
+    std::uint64_t key = 0;
 };
 
 // Renders on its own thread with its own Engine (tile cache on), so the GUI
-// never waits. Only the newest request matters: older pending ones are
-// dropped. Results arrive on the GUI thread via `deliver`.
+// never waits. It holds at most one request for the screen and one for the
+// background; a newer one of either kind replaces an older one not started
+// yet, and the screen's always goes first. Results arrive, in order, on the
+// worker thread via `deliver`.
 class RenderWorker {
 public:
     explicit RenderWorker(std::function<void(ViewResult)> deliver);
@@ -77,7 +87,7 @@ private:
     std::function<void(ViewResult)> deliver_;
     std::mutex mutex_;
     std::condition_variable wake_;
-    std::optional<ViewRequest> pending_;
+    std::optional<ViewRequest> pending_, pendingBackground_;
     bool stopping_ = false;
     std::thread thread_;
 };
@@ -156,8 +166,16 @@ private:
 // whenever the document says something changed.
 //
 // Frames it has shown are kept (up to a memory limit), so going back to
-// one, or playing a range a second time, is instant. Any edit or viewer
-// setting change empties this cache; changing frames doesn't.
+// one, or playing a range a second time, is instant. Each is kept with a
+// key: the engine's render key for the viewed node at that frame, plus the
+// viewer's display settings. After an edit only the frames whose key
+// changed are dropped: editing a node that doesn't feed the viewed one
+// keeps them all, and moving a key keeps the frames it doesn't change.
+//
+// Caching ahead (on by default): while nothing else is being rendered, the
+// frames of the project's range not yet cached are rendered in the
+// background, from the current frame onwards, until the cache is full.
+// After an edit it waits a moment, so dragging a slider isn't slowed down.
 class Viewer : public QWidget {
     Q_OBJECT
 public:
@@ -171,6 +189,11 @@ public:
     bool isCached(int frame) const { return cache_.count(frame) > 0; }
     std::vector<int> cachedFrames() const;
     void setCacheLimit(std::size_t bytes);
+    bool cacheAhead() const { return cacheAhead_; }
+    void setCacheAhead(bool on);
+    // Caching ahead has a frame on its way.
+    bool cachingAhead() const { return backgroundFrame_.has_value(); }
+    int backgroundRequests() const { return backgroundRequests_; }  // so far
 
 public slots:
     // Something changed: forget cached frames and render the current one.
@@ -179,6 +202,7 @@ public slots:
 signals:
     void renderFinished(bool ok);  // after each result is shown
     void cacheChanged();
+    void cacheAheadChanged(bool on);
 
 private:
     void showFrame();  // the document's frame changed
@@ -191,6 +215,12 @@ private:
     void fillViews();
     void clearCache();
     void addToCache(const ViewResult& r);
+    // Takes a new snapshot of the viewed node and drops the cached frames
+    // whose key changed.
+    void refreshKeys();
+    std::uint64_t keyFor(int frame) const;  // 0: none (nothing viewed, or an error)
+    ViewRequest makeRequest(int frame) const;
+    void fillAhead();  // asks for the next frame to cache, if there is one
 
     Document& doc_;
     ViewerCanvas* canvas_;
@@ -201,22 +231,33 @@ private:
     QComboBox* channel_;
     QComboBox* proxy_;
     quint64 serial_ = 0;
-    comp::Format format_;  // the project format the latest render used
+    // What the keys are made from, as of the last refreshKeys().
+    std::shared_ptr<comp::Snapshot> current_;
+    QString snapshotError_;
+    comp::Format format_;
+    double scale_ = 1;
+    std::uint64_t settingsKey_ = 0;
     quint64 shown_ = 0;  // serial of what's on screen
 
     struct Cached {
-        ViewResult result;
+        ViewResult result;  // result.key is its key
         std::size_t bytes;
         std::list<int>::iterator lru;
     };
     std::map<int, Cached> cache_;
     std::list<int> lru_;  // least recently shown first
     std::size_t cacheBytes_ = 0, cacheLimit_ = std::size_t(1) << 30;
+    std::size_t lastBytes_ = 0;  // the size of the latest frame cached
+    bool cacheAhead_ = true;
+    std::optional<int> backgroundFrame_;
+    int backgroundRequests_ = 0;  // asked for in the background, not back yet
+    std::map<int, std::uint64_t> failed_;  // frames whose render failed, by key: not tried again
+    QTimer* aheadTimer_;
     // The worker's newest result waits here for the GUI thread. A plain
     // mutex (not just Qt's event queue) guards the hand-over, so race
     // checkers can see it.
     std::mutex readyMutex_;
-    std::optional<ViewResult> ready_;
+    std::deque<ViewResult> ready_;
     std::unique_ptr<RenderWorker> worker_;
     QTimer* roiTimer_;
     RotoTool* roto_;

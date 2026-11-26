@@ -126,10 +126,12 @@ In planned order. Items further down are less settled.
   small OpenGL area per parameter).
 - **OFX 1.5 Draw suite**: overlays drawn without OpenGL, for plugins that
   use it (needs the OFX 1.5 headers).
-- Smaller: cancelling a render mid-frame (now it stops between files),
-  caching frames ahead of playback in the background (now playback
-  caches as it goes), and keeping cached frames when an edit doesn't
-  affect the viewed node.
+- Smaller: cancelling a render mid-frame (now it stops between files;
+  the viewer's caching ahead also finishes the frame it's on before an
+  edit's render starts).
+- Done: the viewer caches the range's frames ahead in the background,
+  and an edit drops only the cached frames it changes (each is kept with
+  the engine's render key, `Engine::renderKey`).
 
 ### Later
 - Sub-frame sampling for motion blur and retiming (curves already

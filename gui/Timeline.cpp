@@ -161,6 +161,12 @@ Timeline::Timeline(Document& doc, Viewer& viewer, QWidget* parent) : QWidget(par
     fps_->setButtonSymbols(QAbstractSpinBox::NoButtons);
     fps_->setToolTip("Playback speed");
     play_ = button("timelinePlay", "▶", "Play / stop", [this] { togglePlay(); });
+    auto* ahead = button("timelineCacheAhead", "Cache ahead",
+                         "Render the range's frames into the viewer's cache while nothing else is rendering",
+                         [this](bool on) { viewer_.setCacheAhead(on); });
+    ahead->setCheckable(true);
+    ahead->setChecked(viewer_.cacheAhead());
+    connect(&viewer_, &Viewer::cacheAheadChanged, ahead, &QToolButton::setChecked);
     rate_ = new QLabel;
     rate_->setObjectName("timelineRate");
     rate_->setMinimumWidth(64);
@@ -177,6 +183,7 @@ Timeline::Timeline(Document& doc, Viewer& viewer, QWidget* parent) : QWidget(par
     row->addWidget(bar_, 1);
     row->addWidget(last_);
     row->addWidget(fps_);
+    row->addWidget(ahead);
     row->addWidget(rate_);
 
     connect(frame_, &QSpinBox::valueChanged, this, [this](int f) { doc_.setFrame(f); });

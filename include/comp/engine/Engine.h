@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 #include "comp/graph/Node.h"
@@ -95,6 +96,13 @@ public:
     // graph can be edited meanwhile without affecting the result.
     ImageInfo info(const Snapshot& snapshot, const RenderContext& ctx);
     Image render(const Snapshot& snapshot, const RenderContext& ctx, const Box& region);
+
+    // A hash of everything that decides the output's pixels at this
+    // context: the same as the engine's tile-cache key for the output
+    // node. Equal keys mean equal images, so a caller can keep a rendered
+    // frame across edits that don't change its key (an edit to a node that
+    // isn't upstream, say). Cheap: no node computes anything.
+    static std::uint64_t renderKey(const Snapshot& snapshot, const RenderContext& ctx);
 
     // Counters from the most recent render() call.
     const RenderStats& lastStats() const { return stats_; }
