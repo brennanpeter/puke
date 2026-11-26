@@ -1,4 +1,4 @@
-#include "comp/engine/ThreadPool.h"
+#include "puke/engine/ThreadPool.h"
 
 #include <algorithm>
 #include <atomic>
@@ -6,7 +6,7 @@
 #include <limits>
 #include <memory>
 
-namespace comp {
+namespace puke {
 namespace {
 
 // Shared state for one parallelFor call. Helpers queued on the pool hold a
@@ -112,4 +112,4 @@ void ThreadPool::parallelFor(std::size_t count, const std::function<void(std::si
     if (error) std::rethrow_exception(error);
 }
 
-}  // namespace comp
+}  // namespace puke

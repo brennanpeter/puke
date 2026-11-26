@@ -1,19 +1,19 @@
-// Python bindings for comp (module name: comp).
+// Python bindings for puke (module name: puke).
 //
-//   import comp, numpy as np
-//   g = comp.Graph()
+//   import puke, numpy as np
+//   g = puke.Graph()
 //   read = g.create("Read", file="plate.####.exr", first=1001, last=1100)
 //   grade = g.create("Grade", gain=(1.2, 1.1, 1.0, 1.0))
 //   g.connect(read, grade)
-//   engine = comp.Engine()
+//   engine = puke.Engine()
 //   img = engine.render(grade, frame=1001)
 //   pixels = np.asarray(img)          # shape (height, width, channels), float32
-//   g.save("shot.comp")               # comp.Graph.load("shot.comp") reads it back
+//   g.save("shot.puke")               # puke.Graph.load("shot.puke") reads it back
 //
 // Notes on the design:
 //   - Graphs own their nodes. Python only ever holds a handle (graph + node
 //     id) that is checked on every use, so using a node after
-//     Graph.remove() raises comp.Error instead of crashing.
+//     Graph.remove() raises puke.Error instead of crashing.
 //   - Images expose their pixels through the buffer protocol, read-only and
 //     without copying; numpy is not needed to build or import the module.
 //   - Engine.render() and .info() snapshot the graph (with the GIL held),
@@ -34,29 +34,29 @@
 #include <optional>
 #include <string>
 
-#include "comp/color/ColorConfig.h"
-#include "comp/engine/Engine.h"
-#include "comp/engine/Snapshot.h"
-#include "comp/graph/Graph.h"
-#include "comp/nodes/Registry.h"
-#include "comp/nodes/WriteNode.h"
-#include "comp/project/Project.h"
+#include "puke/color/ColorConfig.h"
+#include "puke/engine/Engine.h"
+#include "puke/engine/Snapshot.h"
+#include "puke/graph/Graph.h"
+#include "puke/nodes/Registry.h"
+#include "puke/nodes/WriteNode.h"
+#include "puke/project/Project.h"
 
 namespace py = pybind11;
 using namespace py::literals;
 
 namespace {
 
-using comp::Box;
-using comp::Color;
-using comp::Engine;
-using comp::Error;
-using comp::Graph;
-using comp::Image;
-using comp::ImageInfo;
-using comp::Node;
-using comp::ParamValue;
-using comp::Vec2;
+using puke::Box;
+using puke::Color;
+using puke::Engine;
+using puke::Error;
+using puke::Graph;
+using puke::Image;
+using puke::ImageInfo;
+using puke::Node;
+using puke::ParamValue;
+using puke::Vec2;
 
 // ---------------------------------------------------------------- parameters
 
@@ -151,33 +151,33 @@ std::string reprBox(const Box& b) {
            ", " + std::to_string(b.y1) + ")";
 }
 
-std::string reprChannels(const comp::ChannelList& c) {
+std::string reprChannels(const puke::ChannelList& c) {
     std::string s = "[";
     for (std::size_t i = 0; i < c.size(); ++i) s += (i ? ", '" : "'") + c[i] + "'";
     return s + "]";
 }
 
 // A render at `frame` of a node in `graph`, in the graph's project format.
-comp::RenderContext context(const Graph& graph, double frame, double scale = 1.0) {
-    return comp::RenderContext{frame, graph.settings().format, scale};
+puke::RenderContext context(const Graph& graph, double frame, double scale = 1.0) {
+    return puke::RenderContext{frame, graph.settings().format, scale};
 }
 
 // What Python's Engine wraps: an engine plus a lock, because renders run
 // without the GIL and an Engine renders one thing at a time.
 struct PyEngine {
-    explicit PyEngine(comp::EngineOptions o) : engine(o) {}
+    explicit PyEngine(puke::EngineOptions o) : engine(o) {}
     Engine engine;
     std::mutex mutex;
 };
 
 }  // namespace
 
-PYBIND11_MODULE(comp, m) {
-    m.doc() = "comp: a node-based VFX compositor (Python bindings for the C++ library)";
+PYBIND11_MODULE(puke, m) {
+    m.doc() = "puke: a node-based VFX compositor (Python bindings for the C++ library)";
 
     py::register_exception<Error>(m, "Error");
 
-    m.def("node_types", &comp::nodeTypes, "Every node type Graph.create() accepts.");
+    m.def("node_types", &puke::nodeTypes, "Every node type Graph.create() accepts.");
 
     // ------------------------------------------------------------ Box
 
@@ -256,12 +256,12 @@ without copying. Array index [row, col] is pixel (region.x0 + col, region.y0 + r
 
     // ------------------------------------------------------------ RenderStats
 
-    py::class_<comp::RenderStats>(m, "RenderStats", "Counters from an Engine's most recent render.")
-        .def_readonly("nodes_computed", &comp::RenderStats::nodesComputed)
-        .def_readonly("pixels_computed", &comp::RenderStats::pixelsComputed)
-        .def_readonly("tiles_computed", &comp::RenderStats::tilesComputed)
-        .def_readonly("tiles_from_cache", &comp::RenderStats::tilesFromCache)
-        .def("__repr__", [](const comp::RenderStats& s) {
+    py::class_<puke::RenderStats>(m, "RenderStats", "Counters from an Engine's most recent render.")
+        .def_readonly("nodes_computed", &puke::RenderStats::nodesComputed)
+        .def_readonly("pixels_computed", &puke::RenderStats::pixelsComputed)
+        .def_readonly("tiles_computed", &puke::RenderStats::tilesComputed)
+        .def_readonly("tiles_from_cache", &puke::RenderStats::tilesFromCache)
+        .def("__repr__", [](const puke::RenderStats& s) {
             return "RenderStats(nodes_computed=" + std::to_string(s.nodesComputed) +
                    ", pixels_computed=" + std::to_string(s.pixelsComputed) +
                    ", tiles_computed=" + std::to_string(s.tilesComputed) +
@@ -280,7 +280,7 @@ Renders release the GIL: the graph is snapshotted first, so other threads
 may keep editing it. One Engine renders one thing at a time.)")
         .def(py::init([](int threads, int tileSize, std::size_t cacheBytes) {
                  if (threads < 0) throw py::value_error("threads must be 0 or more");
-                 return std::make_unique<PyEngine>(comp::EngineOptions{threads, tileSize, cacheBytes});
+                 return std::make_unique<PyEngine>(puke::EngineOptions{threads, tileSize, cacheBytes});
              }),
              "threads"_a = 0, "tile_size"_a = 64, "cache_bytes"_a = 0)
         .def_property_readonly("threads", [](const PyEngine& e) { return e.engine.threads(); })
@@ -303,7 +303,7 @@ may keep editing it. One Engine renders one thing at a time.)")
         .def(
             "info",
             [](PyEngine& e, const NodeRef& n, double frame, double scale) {
-                const auto snap = comp::Snapshot::of(n.get());  // with the GIL: nothing edits meanwhile
+                const auto snap = puke::Snapshot::of(n.get());  // with the GIL: nothing edits meanwhile
                 const auto ctx = context(*n.graph, frame, scale);
                 py::gil_scoped_release nogil;
                 std::lock_guard lock(e.mutex);
@@ -313,7 +313,7 @@ may keep editing it. One Engine renders one thing at a time.)")
         .def(
             "render",
             [](PyEngine& e, const NodeRef& n, std::optional<Box> region, double frame, double scale) {
-                const auto snap = comp::Snapshot::of(n.get());
+                const auto snap = puke::Snapshot::of(n.get());
                 const auto ctx = context(*n.graph, frame, scale);
                 py::gil_scoped_release nogil;
                 std::lock_guard lock(e.mutex);
@@ -347,7 +347,7 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
         .def("__getitem__",
              [](const NodeRef& n, const std::string& key) {
                  if (n.get().animated(key))
-                     throw comp::Error(n.get().name() + ": '" + key + "' is animated; read it with value_at(key, frame)");
+                     throw puke::Error(n.get().name() + ": '" + key + "' is animated; read it with value_at(key, frame)");
                  const auto& params = n.get().params();
                  auto it = params.find(key);
                  if (it == params.end()) throw py::key_error(key);
@@ -362,8 +362,8 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
             "set_key",
             [](const NodeRef& n, const std::string& key, double frame, py::handle value, const std::string& interp) {
                 Node& node = n.get();
-                comp::Curve c = node.curve(key) ? *node.curve(key) : comp::Curve{};
-                c.setKey(frame, toParam(key, value), comp::Curve::parseInterp(interp));
+                puke::Curve c = node.curve(key) ? *node.curve(key) : puke::Curve{};
+                c.setKey(frame, toParam(key, value), puke::Curve::parseInterp(interp));
                 node.setCurve(key, std::move(c));
             },
             "key"_a, "frame"_a, "value"_a, "interp"_a = "smooth",
@@ -374,7 +374,7 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
             [](const NodeRef& n, const std::string& key, double frame) {
                 Node& node = n.get();
                 if (!node.curve(key)) return false;
-                comp::Curve c = *node.curve(key);
+                puke::Curve c = *node.curve(key);
                 const bool had = c.removeKey(frame);
                 node.setCurve(key, std::move(c));  // the last key gone: unset
                 return had;
@@ -384,9 +384,9 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
             "keys",
             [](const NodeRef& n, const std::string& key) {
                 py::list out;
-                if (const comp::Curve* c = n.get().curve(key))
+                if (const puke::Curve* c = n.get().curve(key))
                     for (const auto& k : c->keys())
-                        out.append(py::make_tuple(k.frame, fromParam(k.value), comp::Curve::interpName(k.interp)));
+                        out.append(py::make_tuple(k.frame, fromParam(k.value), puke::Curve::interpName(k.interp)));
                 return out;
             },
             "key"_a, "The keys of an animated parameter, as (frame, value, interp); [] if it isn't animated.")
@@ -395,13 +395,13 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
             "set_slope",
             [](const NodeRef& n, const std::string& key, double frame, py::object slope) {
                 Node& node = n.get();
-                if (!node.curve(key)) throw comp::Error(node.name() + ": '" + key + "' isn't animated");
+                if (!node.curve(key)) throw puke::Error(node.name() + ": '" + key + "' isn't animated");
                 std::vector<double> s;
                 if (!slope.is_none()) {
                     if (py::isinstance<py::float_>(slope) || py::isinstance<py::int_>(slope)) s.push_back(slope.cast<double>());
                     else s = slope.cast<std::vector<double>>();
                 }
-                comp::Curve c = *node.curve(key);
+                puke::Curve c = *node.curve(key);
                 c.setSlope(frame, std::move(s));
                 node.setCurve(key, std::move(c));
             },
@@ -410,8 +410,8 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
         .def(
             "slope",
             [](const NodeRef& n, const std::string& key, double frame) -> py::object {
-                const comp::Curve* c = n.get().curve(key);
-                const comp::Curve::Key* k = c ? c->keyAt(frame) : nullptr;
+                const puke::Curve* c = n.get().curve(key);
+                const puke::Curve::Key* k = c ? c->keyAt(frame) : nullptr;
                 if (!k) throw py::key_error(key + " has no key at that frame");
                 if (k->slope.empty()) return py::none();
                 if (k->slope.size() == 1) return py::float_(k->slope[0]);
@@ -430,7 +430,7 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
             "get",
             [](const NodeRef& n, const std::string& key, py::object fallback) {
                 if (n.get().animated(key))
-                    throw comp::Error(n.get().name() + ": '" + key + "' is animated; read it with value_at(key, frame)");
+                    throw puke::Error(n.get().name() + ": '" + key + "' is animated; read it with value_at(key, frame)");
                 const auto& params = n.get().params();
                 auto it = params.find(key);
                 return it == params.end() ? fallback : fromParam(it->second);
@@ -462,7 +462,7 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
                     d["default"] = fromParam(s.defaultValue);
                     d["label"] = s.label.empty() ? s.name : s.label;
                     d["hint"] = s.hint;
-                    if (s.kind == comp::ParamSpec::Kind::Choice) {
+                    if (s.kind == puke::ParamSpec::Kind::Choice) {
                         d["options"] = s.options;
                         d["open_choice"] = s.openChoice;
                     }
@@ -497,7 +497,7 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
         .def(
             "execute",
             [](const NodeRef& n, PyEngine& engine, double frame) {
-                const auto* write = dynamic_cast<const comp::WriteNode*>(&n.get());
+                const auto* write = dynamic_cast<const puke::WriteNode*>(&n.get());
                 if (!write) throw py::type_error(n.get().name() + " is a " + n.get().typeName() +
                                                  " node; only Write nodes can be executed");
                 std::lock_guard lock(engine.mutex);  // the GIL stays held: execute() snapshots part-way
@@ -517,29 +517,29 @@ Values are bool, int, float, str, or a sequence of 2 (Vec2) or 4 (Color) numbers
 
     // ------------------------------------------------------------ ColorConfig
 
-    using ConfigPtr = std::shared_ptr<comp::ColorConfig>;
-    auto mut = [](std::shared_ptr<const comp::ColorConfig> c) { return std::const_pointer_cast<comp::ColorConfig>(c); };
-    py::class_<comp::ColorConfig, ConfigPtr>(m, "ColorConfig", R"(An OpenColorIO config.
+    using ConfigPtr = std::shared_ptr<puke::ColorConfig>;
+    auto mut = [](std::shared_ptr<const puke::ColorConfig> c) { return std::const_pointer_cast<puke::ColorConfig>(c); };
+    py::class_<puke::ColorConfig, ConfigPtr>(m, "ColorConfig", R"(An OpenColorIO config.
 
 Pixels inside a graph are in the working space (the config's scene_linear
 role). Read converts into it, Write out of it, the ColorSpace node between
-any two spaces. The current config is $OCIO if set, else comp's built-in one.
+any two spaces. The current config is $OCIO if set, else puke's built-in one.
 Color space names may also be OCIO roles ("scene_linear", "matte_paint").)")
-        .def_static("builtin", [mut] { return mut(comp::ColorConfig::builtin()); })
-        .def_static("from_file", [mut](const std::string& path) { return mut(comp::ColorConfig::fromFile(path)); },
+        .def_static("builtin", [mut] { return mut(puke::ColorConfig::builtin()); })
+        .def_static("from_file", [mut](const std::string& path) { return mut(puke::ColorConfig::fromFile(path)); },
                     "path"_a)
-        .def_static("from_environment", [mut] { return mut(comp::ColorConfig::fromEnvironment()); },
+        .def_static("from_environment", [mut] { return mut(puke::ColorConfig::fromEnvironment()); },
                     "$OCIO if set and not empty, otherwise the built-in config.")
-        .def_static("current", [mut] { return mut(comp::ColorConfig::current()); }, "The config nodes use.")
+        .def_static("current", [mut] { return mut(puke::ColorConfig::current()); }, "The config nodes use.")
         .def_static(
-            "set_current", [](const ConfigPtr& c) { comp::ColorConfig::setCurrent(c); }, "config"_a,
+            "set_current", [](const ConfigPtr& c) { puke::ColorConfig::setCurrent(c); }, "config"_a,
             "Makes `config` current. None: reload from the environment on next use.")
-        .def_property_readonly("source", &comp::ColorConfig::source, "The file it came from, or 'built-in'.")
-        .def_property_readonly("color_spaces", &comp::ColorConfig::colorSpaces)
-        .def_property_readonly("working_space", &comp::ColorConfig::workingSpace)
-        .def("has", &comp::ColorConfig::has, "name"_a)
-        .def("resolve", &comp::ColorConfig::resolve, "name"_a, "The color space a name or role refers to.")
-        .def("__repr__", [](const comp::ColorConfig& c) { return "<ColorConfig '" + c.source() + "'>"; });
+        .def_property_readonly("source", &puke::ColorConfig::source, "The file it came from, or 'built-in'.")
+        .def_property_readonly("color_spaces", &puke::ColorConfig::colorSpaces)
+        .def_property_readonly("working_space", &puke::ColorConfig::workingSpace)
+        .def("has", &puke::ColorConfig::has, "name"_a)
+        .def("resolve", &puke::ColorConfig::resolve, "name"_a, "The color space a name or role refers to.")
+        .def("__repr__", [](const puke::ColorConfig& c) { return "<ColorConfig '" + c.source() + "'>"; });
 
     // ------------------------------------------------------------ Graph
 
@@ -547,28 +547,28 @@ Color space names may also be OCIO roles ("scene_linear", "matte_paint").)")
         .def(py::init<>())
         .def_static(
             "load",
-            [](const std::filesystem::path& path) { return std::make_shared<Graph>(comp::loadProject(path)); },
-            "path"_a, "Reads a project file (.comp).")
+            [](const std::filesystem::path& path) { return std::make_shared<Graph>(puke::loadProject(path)); },
+            "path"_a, "Reads a project file (.puke).")
         .def_static(
             "from_json",
-            [](const std::string& text) { return std::make_shared<Graph>(comp::projectFromJson(text)); },
+            [](const std::string& text) { return std::make_shared<Graph>(puke::projectFromJson(text)); },
             "text"_a, "Reads a project from a JSON string.")
-        .def("save", [](const Graph& g, const std::filesystem::path& path) { comp::saveProject(g, path); },
+        .def("save", [](const Graph& g, const std::filesystem::path& path) { puke::saveProject(g, path); },
              "path"_a, "Writes the graph as a project file. The file is replaced only once fully written.")
-        .def("to_json", &comp::projectToJson, "The project file text for this graph.")
+        .def("to_json", &puke::projectToJson, "The project file text for this graph.")
         .def_property(
             "frame_range", [](const Graph& g) { return std::make_pair(g.settings().firstFrame, g.settings().lastFrame); },
             [](Graph& g, std::pair<int, int> r) {
-                comp::ProjectSettings s = g.settings();
+                puke::ProjectSettings s = g.settings();
                 s.firstFrame = r.first;
                 s.lastFrame = r.second;
                 g.setSettings(s);
             },
-            "The project's (first, last) frame, inclusive. comp_render renders it by default.")
+            "The project's (first, last) frame, inclusive. puke_render renders it by default.")
         .def_property(
             "fps", [](const Graph& g) { return g.settings().fps; },
             [](Graph& g, double fps) {
-                comp::ProjectSettings s = g.settings();
+                puke::ProjectSettings s = g.settings();
                 s.fps = fps;
                 g.setSettings(s);
             },
@@ -576,7 +576,7 @@ Color space names may also be OCIO roles ("scene_linear", "matte_paint").)")
         .def_property(
             "format", [](const Graph& g) { return std::make_pair(g.settings().format.width, g.settings().format.height); },
             [](Graph& g, std::pair<int, int> wh) {
-                comp::ProjectSettings s = g.settings();
+                puke::ProjectSettings s = g.settings();
                 s.format = {wh.first, wh.second};
                 g.setSettings(s);
             },
@@ -585,7 +585,7 @@ Color space names may also be OCIO roles ("scene_linear", "matte_paint").)")
             "create",
             [](const std::shared_ptr<Graph>& g, const std::string& type, std::optional<std::string> name,
                const py::kwargs& params) {
-                auto node = comp::createNode(type, name ? *name : freeName(*g, type));
+                auto node = puke::createNode(type, name ? *name : freeName(*g, type));
                 for (const auto& [k, v] : params) {
                     const auto key = k.cast<std::string>();
                     node->setParam(key, toParam(key, v));
@@ -593,7 +593,7 @@ Color space names may also be OCIO roles ("scene_linear", "matte_paint").)")
                 return refTo(g, g->add(std::move(node)));
             },
             "type"_a, "name"_a = py::none(),
-            R"(Adds a node of `type` (see comp.node_types()). Without a name it gets the
+            R"(Adds a node of `type` (see puke.node_types()). Without a name it gets the
 first free one of "Type1", "Type2", ... Keyword arguments set parameters.)")
         .def("find", [](const std::shared_ptr<Graph>& g, const std::string& name) { return optionalRef(g, g->find(name)); },
              "name"_a, "The node called `name`, or None.")

@@ -18,10 +18,10 @@
 
 #include "Document.h"
 #include "RotoTool.h"
-#include "comp/color/ColorConfig.h"
-#include "comp/engine/Engine.h"
+#include "puke/color/ColorConfig.h"
+#include "puke/engine/Engine.h"
 
-namespace compgui {
+namespace pukegui {
 
 // ================================================================ worker
 
@@ -29,9 +29,9 @@ namespace {
 
 // Working-space pixels -> an 8-bit image for the screen: pick channels,
 // apply exposure, then the OCIO display and view.
-QImage toDisplay(const comp::Image& working, const ViewRequest& req) {
-    const comp::Box& r = working.region();
-    comp::Image show(r, {"R", "G", "B"});
+QImage toDisplay(const puke::Image& working, const ViewRequest& req) {
+    const puke::Box& r = working.region();
+    puke::Image show(r, {"R", "G", "B"});
     const int ch[4] = {working.channelIndex("R"), working.channelIndex("G"), working.channelIndex("B"),
                        std::max(working.channelIndex("A"), working.channelIndex("alpha"))};
     const float gain = static_cast<float>(std::exp2(req.exposure));
@@ -48,7 +48,7 @@ QImage toDisplay(const comp::Image& working, const ViewRequest& req) {
             }
         }
     }
-    if (req.channel != 4) comp::ColorConfig::current()->convertToDisplay(show, req.display, req.view);
+    if (req.channel != 4) puke::ColorConfig::current()->convertToDisplay(show, req.display, req.view);
 
     QImage img(r.width(), r.height(), QImage::Format_RGB32);
     for (int y = r.y0; y < r.y1; ++y) {
@@ -85,7 +85,7 @@ void RenderWorker::request(ViewRequest r) {
 }
 
 void RenderWorker::run() {
-    comp::Engine engine(comp::EngineOptions{.cacheBytes = std::size_t(1) << 30});
+    puke::Engine engine(puke::EngineOptions{.cacheBytes = std::size_t(1) << 30});
     for (;;) {
         ViewRequest req;
         {
@@ -104,26 +104,26 @@ void RenderWorker::run() {
         QElapsedTimer timer;
         timer.start();
         try {
-            const comp::RenderContext ctx{req.frame, req.format, req.scale};
+            const puke::RenderContext ctx{req.frame, req.format, req.scale};
             res.scale = req.scale;
-            const comp::ImageInfo info = engine.info(*req.snapshot, ctx);
+            const puke::ImageInfo info = engine.info(*req.snapshot, ctx);
             res.displayWindow = info.displayWindow;
             // At full size, asked for rather than scaled back up (rounding).
             res.fullFrame = req.scale == 1 ? info.displayWindow
                                        : engine.info(*req.snapshot, {req.frame, req.format, 1.0}).displayWindow;
             // The frame, plus whatever overscan exists around it (up to a
             // quarter of the frame size on each side).
-            const comp::Box& f = info.displayWindow;
+            const puke::Box& f = info.displayWindow;
             const int pad = std::max(f.width(), f.height()) / 4;
-            comp::Box region = f.unite(info.dataWindow.intersect(f.padded(pad)));
+            puke::Box region = f.unite(info.dataWindow.intersect(f.padded(pad)));
             if (f.empty()) region = info.dataWindow.intersect({-4096, -4096, 4096, 4096});
             res.full = region;
             if (req.visible) {  // only what's on screen, with a margin for small pans
-                const comp::Box v = req.visible->scaled(req.scale);
+                const puke::Box v = req.visible->scaled(req.scale);
                 region = region.intersect(v.padded(std::max(32, std::max(v.width(), v.height()) / 8)));
             }
             res.region = region;
-            auto working = std::make_shared<comp::Image>(engine.render(*req.snapshot, ctx, region));
+            auto working = std::make_shared<puke::Image>(engine.render(*req.snapshot, ctx, region));
             res.image = toDisplay(*working, req);
             res.working = std::move(working);
         } catch (const std::exception& e) {
@@ -150,10 +150,10 @@ void ViewerCanvas::setResult(const ViewResult& r) {
     update();
 }
 
-std::optional<comp::Box> ViewerCanvas::visibleRegion() const {
+std::optional<puke::Box> ViewerCanvas::visibleRegion() const {
     if (!placed_ || width() <= 0 || height() <= 0) return std::nullopt;
     const QPointF a = toImage(QPointF(0, 0)), b = toImage(QPointF(width(), height()));
-    return comp::Box{int(std::floor(a.x())), int(std::floor(a.y())), int(std::ceil(b.x())), int(std::ceil(b.y()))};
+    return puke::Box{int(std::floor(a.x())), int(std::floor(a.y())), int(std::ceil(b.x())), int(std::ceil(b.y()))};
 }
 
 void ViewerCanvas::centerOn(QPointF p) {
@@ -170,7 +170,7 @@ void ViewerCanvas::setMessage(const QString& m) {
 }
 
 void ViewerCanvas::fit() {
-    const comp::Box f = result_.fullFrame.empty() ? result_.full.scaled(1 / result_.scale) : result_.fullFrame;
+    const puke::Box f = result_.fullFrame.empty() ? result_.full.scaled(1 / result_.scale) : result_.fullFrame;
     if (f.empty()) return;
     zoom_ = std::min((width() - 40.0) / f.width(), (height() - 40.0) / f.height());
     zoom_ = std::max(zoom_, 0.01);
@@ -202,21 +202,21 @@ void ViewerCanvas::paintEvent(QPaintEvent*) {
     p.fillRect(rect(), QColor(30, 30, 32));
     if (!result_.image.isNull()) {
         // A proxy picture is drawn at full size, exactly where the full one would be.
-        const comp::Box& r = result_.region;
+        const puke::Box& r = result_.region;
         const double z = zoom_ / result_.scale;
         const QRectF target(offset_.x() + r.x0 * z, offset_.y() + r.y0 * z, r.width() * z, r.height() * z);
         p.setRenderHint(QPainter::SmoothPixmapTransform, zoom_ < 1);
         p.drawImage(target, result_.image);
     }
     if (!result_.full.empty()) {
-        const comp::Box& f = result_.fullFrame;
+        const puke::Box& f = result_.fullFrame;
         p.setPen(QPen(QColor(150, 150, 150), 1, Qt::DashLine));
         p.setBrush(Qt::NoBrush);
         p.drawRect(QRectF(offset_.x() + f.x0 * zoom_, offset_.y() + f.y0 * zoom_, f.width() * zoom_, f.height() * zoom_));
     }
     p.setPen(QColor(200, 200, 200));
     if (!result_.full.empty()) {
-        const comp::Box& f = result_.fullFrame;
+        const puke::Box& f = result_.fullFrame;
         const QString proxy = result_.scale < 1 ? QString("   proxy %1%").arg(int(std::lround(result_.scale * 100))) : QString();
         p.drawText(rect().adjusted(8, 6, -8, -6), Qt::AlignTop | Qt::AlignRight,
                    QString("%1x%2%5   %3%   %4 ms").arg(f.width()).arg(f.height()).arg(int(zoom_ * 100)).arg(result_.milliseconds, 0, 'f', 0).arg(proxy));
@@ -228,10 +228,10 @@ void ViewerCanvas::paintEvent(QPaintEvent*) {
         p.setPen(QColor(200, 200, 200));
     }
     if (overlay_.overlay && placed_) {
-        const comp::ofx::Overlay::View v = overlayView();
+        const puke::ofx::Overlay::View v = overlayView();
         const QPointF a = toImage(QPointF(0, 0)), b = toImage(QPointF(width(), height()));
         const QImage img = overlayRenderer_.render(*overlay_.overlay, v, size(),
-                                                   comp::ofx::Overlay::canonicalRect(v, a.x(), a.y(), b.x(), b.y()));
+                                                   puke::ofx::Overlay::canonicalRect(v, a.x(), a.y(), b.x(), b.y()));
         if (!img.isNull()) p.drawImage(QPoint(0, 0), img);
     }
     if (!readout_.isEmpty()) p.drawText(rect().adjusted(8, 6, -8, -6), Qt::AlignBottom | Qt::AlignLeft, readout_);
@@ -259,8 +259,8 @@ void ViewerCanvas::setOverlay(OverlayHooks hooks) {
     update();
 }
 
-comp::ofx::Overlay::View ViewerCanvas::overlayView() const {
-    comp::ofx::Overlay::View v = overlay_.view ? overlay_.view() : comp::ofx::Overlay::View{};
+puke::ofx::Overlay::View ViewerCanvas::overlayView() const {
+    puke::ofx::Overlay::View v = overlay_.view ? overlay_.view() : puke::ofx::Overlay::View{};
     v.pixelScale = 1 / zoom_;
     v.viewportWidth = width();
     v.viewportHeight = height();
@@ -334,7 +334,7 @@ void ViewerCanvas::mouseMoveEvent(QMouseEvent* e) {
         // The pixel under the mouse: in a proxy picture, the one covering it.
         const QPointF p = toImage(e->position()) * result_.scale;
         const int x = int(std::floor(p.x())), y = int(std::floor(p.y()));
-        const comp::Image& img = *result_.working;
+        const puke::Image& img = *result_.working;
         if (img.region().contains(x, y)) {
             QStringList values;
             for (int c = 0; c < img.numChannels(); ++c)
@@ -364,7 +364,7 @@ void ViewerCanvas::mouseReleaseEvent(QMouseEvent* e) {
 
 void ViewerCanvas::keyPressEvent(QKeyEvent* e) {
     if (overlay_.overlay) {
-        using K = comp::ofx::Overlay::Key;
+        using K = puke::ofx::Overlay::Key;
         K key = K::Character;
         switch (e->key()) {
             case Qt::Key_Return: case Qt::Key_Enter: key = K::Return; break;
@@ -445,17 +445,17 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     connect(&doc_, &Document::selectionChanged, draw, [this, draw] { draw->setVisible(roto_->node() != nullptr); });
     connect(&doc_, &Document::selectionChanged, this, &Viewer::updateOverlay);
     connect(&doc_, &Document::structureChanged, this, &Viewer::updateOverlay);
-    connect(&doc_, &Document::paramChanged, this, [this](comp::Node* n) {
+    connect(&doc_, &Document::paramChanged, this, [this](puke::Node* n) {
         if (overlay_ && n == &overlay_->node()) canvas_->update();
     });
     connect(&doc_, &Document::frameChanged, canvas_, qOverload<>(&QWidget::update));
     layout->addWidget(canvas_, 1);
 
     try {
-        const auto config = comp::ColorConfig::current();
+        const auto config = puke::ColorConfig::current();
         for (const auto& d : config->displays()) display_->addItem(QString::fromStdString(d));
         display_->setCurrentText(QString::fromStdString(config->defaultDisplay()));
-    } catch (const comp::Error&) {
+    } catch (const puke::Error&) {
     }
     fillViews();
 
@@ -505,43 +505,43 @@ void Viewer::fillViews() {
     const QString keep = view_->currentText();
     view_->clear();
     try {
-        const auto config = comp::ColorConfig::current();
+        const auto config = puke::ColorConfig::current();
         const std::string display = display_->currentText().toStdString();
         if (!display.empty()) {
             for (const auto& v : config->views(display)) view_->addItem(QString::fromStdString(v));
             const int i = view_->findText(keep);
             view_->setCurrentText(i >= 0 ? keep : QString::fromStdString(config->defaultView(display)));
         }
-    } catch (const comp::Error&) {
+    } catch (const puke::Error&) {
     }
 }
 
 void Viewer::updateOverlay() {
-    comp::Node* sel = doc_.selected();
+    puke::Node* sel = doc_.selected();
     if (overlay_ && sel == &overlay_->node()) return;  // the same node
     canvas_->setOverlay({});
     overlay_.reset();
     if (!sel) return;
     try {
-        overlay_ = comp::ofx::Overlay::create(*sel);
+        overlay_ = puke::ofx::Overlay::create(*sel);
     } catch (const std::exception&) {
         overlay_.reset();  // a plugin that can't make one: no overlay
     }
     if (!overlay_) return;
-    comp::Node* node = sel;
+    puke::Node* node = sel;
     ViewerCanvas::OverlayHooks hooks;
     hooks.overlay = overlay_.get();
     hooks.view = [this] {
-        comp::ofx::Overlay::View v;
+        puke::ofx::Overlay::View v;
         v.time = doc_.frame();
         v.renderScale = proxy_->currentData().toDouble();
         v.format = doc_.settings().format;
-        const comp::Box f = canvas_->result().fullFrame.empty() ? v.format.box() : canvas_->result().fullFrame;
+        const puke::Box f = canvas_->result().fullFrame.empty() ? v.format.box() : canvas_->result().fullFrame;
         v.flipY = f.y0 + f.y1;
         return v;
     };
     // A drag's changes are one undo step.
-    hooks.edit = [this, node](const std::string& key, comp::ParamValue value) {
+    hooks.edit = [this, node](const std::string& key, puke::ParamValue value) {
         if (!overlayEditOpen_) {
             doc_.beginEdit("Edit " + QString::fromStdString(node->name()) + " in the viewer");
             overlayEditOpen_ = true;
@@ -564,26 +564,26 @@ void Viewer::requestRender() {
 }
 
 void Viewer::refreshKeys() {
-    comp::Node* node = doc_.viewed();
+    puke::Node* node = doc_.viewed();
     title_->setText(node ? QString("<b>%1</b>").arg(QString::fromStdString(node->name())) : QString());
     format_ = doc_.settings().format;
     scale_ = proxy_->currentData().toDouble();
-    comp::Hasher h;
+    puke::Hasher h;
     h.add(std::string_view(display_->currentText().toStdString()))
         .add(std::string_view(view_->currentText().toStdString()))
         .add(exposure_->value())
         .add(channel_->currentIndex());
     try {
-        h.add(comp::ColorConfig::current()->hash());
-    } catch (const comp::Error&) {
+        h.add(puke::ColorConfig::current()->hash());
+    } catch (const puke::Error&) {
     }
     settingsKey_ = h.value();
     current_.reset();
     snapshotError_.clear();
     if (node) {
         try {
-            current_ = std::make_shared<comp::Snapshot>(comp::Snapshot::of(*node));  // here, on the GUI thread
-        } catch (const comp::Error& e) {
+            current_ = std::make_shared<puke::Snapshot>(puke::Snapshot::of(*node));  // here, on the GUI thread
+        } catch (const puke::Error& e) {
             snapshotError_ = QString::fromStdString(e.what());
         }
     }
@@ -605,8 +605,8 @@ void Viewer::refreshKeys() {
 std::uint64_t Viewer::keyFor(int frame) const {
     if (!current_) return 0;
     try {
-        comp::Hasher h;
-        h.add(comp::Engine::renderKey(*current_, {double(frame), format_, scale_})).add(settingsKey_);
+        puke::Hasher h;
+        h.add(puke::Engine::renderKey(*current_, {double(frame), format_, scale_})).add(settingsKey_);
         return std::max<std::uint64_t>(h.value(), 1);
     } catch (const std::exception&) {
         return 0;  // rendering it will report the error
@@ -639,7 +639,7 @@ void Viewer::setCacheAhead(bool on) {
 void Viewer::fillAhead() {
     if (!cacheAhead_ || backgroundFrame_ || busy() || !current_) return;
     if (lastBytes_ > 0 && cacheBytes_ + lastBytes_ > cacheLimit_) return;  // full: don't push out what's there
-    const comp::ProjectSettings& s = doc_.settings();
+    const puke::ProjectSettings& s = doc_.settings();
     const int n = s.lastFrame - s.firstFrame + 1;
     if (n <= 0) return;
     // From the frame after the current one, through the range, wrapping.
@@ -660,7 +660,7 @@ void Viewer::fillAhead() {
 
 bool Viewer::covers(const ViewResult& r) const {
     const auto visible = canvas_->visibleRegion();
-    const comp::Box needed = visible ? r.full.intersect(visible->scaled(r.scale)) : r.full;
+    const puke::Box needed = visible ? r.full.intersect(visible->scaled(r.scale)) : r.full;
     return needed.empty() || r.region.intersect(needed) == needed;
 }
 
@@ -788,4 +788,4 @@ void Viewer::addToCache(const ViewResult& r) {
     emit cacheChanged();
 }
 
-}  // namespace compgui
+}  // namespace pukegui

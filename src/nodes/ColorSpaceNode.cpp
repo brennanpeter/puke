@@ -1,10 +1,10 @@
-#include "comp/nodes/ColorSpaceNode.h"
+#include "puke/nodes/ColorSpaceNode.h"
 
 #include "Specs.h"
 
-#include "comp/color/ColorConfig.h"
+#include "puke/color/ColorConfig.h"
 
-namespace comp {
+namespace puke {
 
 Image ColorSpaceNode::compute(const RenderContext&, const Box& region, std::span<const Image* const> inputs) const {
     Image out = cropped(*inputs[0], region);
@@ -29,4 +29,4 @@ std::vector<ParamSpec> ColorSpaceNode::paramSpecs() const {
     };
 }
 
-}  // namespace comp
+}  // namespace puke

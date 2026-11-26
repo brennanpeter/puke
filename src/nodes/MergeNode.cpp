@@ -1,4 +1,4 @@
-#include "comp/nodes/MergeNode.h"
+#include "puke/nodes/MergeNode.h"
 
 #include "Specs.h"
 
@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-namespace comp {
+namespace puke {
 namespace {
 
 enum class Op {
@@ -136,4 +136,4 @@ std::vector<ParamSpec> MergeNode::paramSpecs() const {
     };
 }
 
-}  // namespace comp
+}  // namespace puke

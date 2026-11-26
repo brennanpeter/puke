@@ -15,9 +15,9 @@
 #include <string>
 #include <thread>
 
-#include "comp/core/Image.h"
-#include "comp/engine/Snapshot.h"
-#include "comp/ofx/Overlay.h"
+#include "puke/core/Image.h"
+#include "puke/engine/Snapshot.h"
+#include "puke/ofx/Overlay.h"
 #include "OverlayRenderer.h"
 
 class QComboBox;
@@ -27,7 +27,7 @@ class QDoubleSpinBox;
 class QLabel;
 class QSpinBox;
 
-namespace compgui {
+namespace pukegui {
 
 class RotoTool;
 
@@ -35,15 +35,15 @@ class Document;
 
 // What the viewer asks for, and gets back.
 struct ViewRequest {
-    std::shared_ptr<comp::Snapshot> snapshot;
+    std::shared_ptr<puke::Snapshot> snapshot;
     double frame = 1;
-    comp::Format format;  // the project's
+    puke::Format format;  // the project's
     std::string display, view;
     double exposure = 0;  // stops
     int channel = 0;      // 0 RGB, 1 R, 2 G, 3 B, 4 A
     // The part of the image on screen (full-size pixel coordinates), if
     // known: only that (plus a margin) is rendered.
-    std::optional<comp::Box> visible;
+    std::optional<puke::Box> visible;
     double scale = 1;  // proxy: render at this fraction of full size
     quint64 serial = 0;
     // Caching ahead: not for the screen, only for the frame cache. The
@@ -56,14 +56,14 @@ struct ViewResult {
     quint64 serial = 0;
     double frame = 1;
     QImage image;                             // display-ready, covering `region`
-    std::shared_ptr<const comp::Image> working;  // working-space pixels, for the readout
+    std::shared_ptr<const puke::Image> working;  // working-space pixels, for the readout
     // In pixels at `scale` (a proxy render is smaller); the canvas draws it
     // at full size.
     double scale = 1;
-    comp::Box region;      // what was rendered
-    comp::Box full;        // what would be rendered with all of it on screen
-    comp::Box displayWindow;
-    comp::Box fullFrame;   // the display window at full size (for drawing)
+    puke::Box region;      // what was rendered
+    puke::Box full;        // what would be rendered with all of it on screen
+    puke::Box displayWindow;
+    puke::Box fullFrame;   // the display window at full size (for drawing)
     QString error;
     double milliseconds = 0;
     bool background = false;
@@ -109,7 +109,7 @@ public:
     const ViewResult& result() const { return result_; }
     // The image pixels on screen, once the image has been placed (after
     // the first fit); before that, nothing is known.
-    std::optional<comp::Box> visibleRegion() const;
+    std::optional<puke::Box> visibleRegion() const;
     // Image pixel coordinates -> widget coordinates, and back.
     QPointF toWidget(QPointF image) const { return image * zoom_ + offset_; }
     QPointF toImage(QPointF widget) const;
@@ -120,14 +120,14 @@ public:
     // An OFX overlay: drawn over the picture, given mouse and key events
     // before anything else.
     struct OverlayHooks {
-        comp::ofx::Overlay* overlay = nullptr;
-        std::function<comp::ofx::Overlay::View()> view;  // time, scale, format, flip; the canvas adds the rest
-        comp::ofx::Overlay::Edit edit;                   // a value the plugin set
+        puke::ofx::Overlay* overlay = nullptr;
+        std::function<puke::ofx::Overlay::View()> view;  // time, scale, format, flip; the canvas adds the rest
+        puke::ofx::Overlay::Edit edit;                   // a value the plugin set
         std::function<void()> done;                      // a gesture ended: close its undo step
     };
     void setOverlay(OverlayHooks hooks);
     // The OFX view for the overlay now (the hooks' view plus zoom and size).
-    comp::ofx::Overlay::View overlayView() const;
+    puke::ofx::Overlay::View overlayView() const;
     OverlayRenderer& overlayRenderer() { return overlayRenderer_; }
 
 signals:
@@ -232,9 +232,9 @@ private:
     QComboBox* proxy_;
     quint64 serial_ = 0;
     // What the keys are made from, as of the last refreshKeys().
-    std::shared_ptr<comp::Snapshot> current_;
+    std::shared_ptr<puke::Snapshot> current_;
     QString snapshotError_;
-    comp::Format format_;
+    puke::Format format_;
     double scale_ = 1;
     std::uint64_t settingsKey_ = 0;
     quint64 shown_ = 0;  // serial of what's on screen
@@ -262,9 +262,9 @@ private:
     QTimer* roiTimer_;
     RotoTool* roto_;
     // The selected OFX node's overlay, if its plugin has one.
-    std::unique_ptr<comp::ofx::Overlay> overlay_;
+    std::unique_ptr<puke::ofx::Overlay> overlay_;
     bool overlayEditOpen_ = false;
     void updateOverlay();  // gathers zooming and panning into one render
 };
 
-}  // namespace compgui
+}  // namespace pukegui

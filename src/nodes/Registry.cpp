@@ -1,25 +1,25 @@
-#include "comp/nodes/Registry.h"
+#include "puke/nodes/Registry.h"
 
 #include <functional>
 #include <map>
 
-#include "comp/nodes/BackdropNode.h"
-#include "comp/nodes/ColorSpaceNode.h"
-#include "comp/nodes/ConstantNode.h"
-#include "comp/nodes/ShuffleNode.h"
-#include "comp/nodes/ReformatNode.h"
-#include "comp/nodes/RotoNode.h"
-#include "comp/nodes/PremultNode.h"
-#include "comp/nodes/CropNode.h"
-#include "comp/nodes/BlurNode.h"
-#include "comp/nodes/GradeNode.h"
-#include "comp/nodes/MergeNode.h"
-#include "comp/nodes/ReadNode.h"
-#include "comp/nodes/TransformNode.h"
-#include "comp/nodes/WriteNode.h"
-#include "comp/ofx/OfxHost.h"
+#include "puke/nodes/BackdropNode.h"
+#include "puke/nodes/ColorSpaceNode.h"
+#include "puke/nodes/ConstantNode.h"
+#include "puke/nodes/ShuffleNode.h"
+#include "puke/nodes/ReformatNode.h"
+#include "puke/nodes/RotoNode.h"
+#include "puke/nodes/PremultNode.h"
+#include "puke/nodes/CropNode.h"
+#include "puke/nodes/BlurNode.h"
+#include "puke/nodes/GradeNode.h"
+#include "puke/nodes/MergeNode.h"
+#include "puke/nodes/ReadNode.h"
+#include "puke/nodes/TransformNode.h"
+#include "puke/nodes/WriteNode.h"
+#include "puke/ofx/OfxHost.h"
 
-namespace comp {
+namespace puke {
 namespace {
 
 using Factory = std::function<std::unique_ptr<Node>(const std::string& name)>;
@@ -73,4 +73,4 @@ std::unique_ptr<Node> createNode(const std::string& type, const std::string& nam
     return it->second(name);
 }
 
-}  // namespace comp
+}  // namespace puke

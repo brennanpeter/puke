@@ -1,8 +1,8 @@
-#include "comp/nodes/ReadNode.h"
+#include "puke/nodes/ReadNode.h"
 
 #include "Specs.h"
 
-#include "comp/color/ColorConfig.h"
+#include "puke/color/ColorConfig.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,9 +13,9 @@
 
 #include <OpenImageIO/imageio.h>
 
-#include "comp/core/FramePattern.h"
+#include "puke/core/FramePattern.h"
 
-namespace comp {
+namespace puke {
 namespace {
 
 namespace OIIO = OIIO_NAMESPACE;
@@ -177,4 +177,4 @@ std::vector<ParamSpec> ReadNode::paramSpecs() const {
     };
 }
 
-}  // namespace comp
+}  // namespace puke

@@ -1,8 +1,8 @@
-#include "comp/nodes/BackdropNode.h"
+#include "puke/nodes/BackdropNode.h"
 
 #include "Specs.h"
 
-namespace comp {
+namespace puke {
 
 std::vector<ParamSpec> BackdropNode::paramSpecs() const {
     using namespace specs;
@@ -13,4 +13,4 @@ std::vector<ParamSpec> BackdropNode::paramSpecs() const {
     };
 }
 
-}  // namespace comp
+}  // namespace puke

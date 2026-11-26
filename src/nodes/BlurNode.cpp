@@ -1,11 +1,11 @@
-#include "comp/nodes/BlurNode.h"
+#include "puke/nodes/BlurNode.h"
 
 #include <algorithm>
 #include <cmath>
 
 #include "Specs.h"
 
-namespace comp {
+namespace puke {
 
 std::vector<ParamSpec> BlurNode::paramSpecs() const {
     using namespace specs;
@@ -95,4 +95,4 @@ Image BlurNode::compute(const RenderContext& ctx, const Box& region, std::span<c
     return out;
 }
 
-}  // namespace comp
+}  // namespace puke

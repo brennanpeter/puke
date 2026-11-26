@@ -1,4 +1,4 @@
-#include "comp/ofx/Overlay.h"
+#include "puke/ofx/Overlay.h"
 
 #include <map>
 #include <mutex>
@@ -9,7 +9,7 @@
 #include "ofxKeySyms.h"
 #include "ofxOld.h"  // kOfxInteractPropViewportSize: deprecated, but older plugins read it
 
-namespace comp::ofx {
+namespace puke::ofx {
 
 // The interact's property set; OfxInteractHandle points at one of these.
 struct InteractProps : PropertySet {
@@ -249,4 +249,4 @@ bool Overlay::takeRedrawRequest() {
     return r;
 }
 
-}  // namespace comp::ofx
+}  // namespace puke::ofx

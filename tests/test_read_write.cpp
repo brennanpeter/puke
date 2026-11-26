@@ -11,18 +11,18 @@
 #include <OpenImageIO/imageio.h>
 
 #include "TestUtil.h"
-#include "comp/core/FramePattern.h"
-#include "comp/engine/Engine.h"
-#include "comp/engine/Snapshot.h"
-#include "comp/graph/Graph.h"
-#include "comp/color/ColorConfig.h"
-#include "comp/nodes/ReadNode.h"
-#include "comp/nodes/Registry.h"
-#include "comp/nodes/WriteNode.h"
+#include "puke/core/FramePattern.h"
+#include "puke/engine/Engine.h"
+#include "puke/engine/Snapshot.h"
+#include "puke/graph/Graph.h"
+#include "puke/color/ColorConfig.h"
+#include "puke/nodes/ReadNode.h"
+#include "puke/nodes/Registry.h"
+#include "puke/nodes/WriteNode.h"
 
 namespace OIIO = OIIO_NAMESPACE;
 namespace fs = std::filesystem;
-using namespace comp;
+using namespace puke;
 using test::SourceNode;
 
 static Engine g_engine;

@@ -1,12 +1,12 @@
-#include "comp/graph/Curve.h"
+#include "puke/graph/Curve.h"
 
 #include <algorithm>
 #include <cmath>
 #include <optional>
 
-#include "comp/core/Path.h"
+#include "puke/core/Path.h"
 
-namespace comp {
+namespace puke {
 
 namespace {
 
@@ -191,4 +191,4 @@ Curve::Interp Curve::parseInterp(const std::string& s) {
     throw Error("unknown interpolation '" + s + "' (use smooth, linear or constant)");
 }
 
-}  // namespace comp
+}  // namespace puke

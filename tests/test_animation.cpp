@@ -5,14 +5,14 @@
 #include <string>
 
 #include "TestUtil.h"
-#include "comp/core/Path.h"
-#include "comp/engine/Engine.h"
-#include "comp/engine/Snapshot.h"
-#include "comp/graph/Graph.h"
-#include "comp/nodes/Registry.h"
-#include "comp/project/Project.h"
+#include "puke/core/Path.h"
+#include "puke/engine/Engine.h"
+#include "puke/engine/Snapshot.h"
+#include "puke/graph/Graph.h"
+#include "puke/nodes/Registry.h"
+#include "puke/project/Project.h"
 
-using namespace comp;
+using namespace puke;
 using test::SourceNode;
 using Interp = Curve::Interp;
 
@@ -223,7 +223,7 @@ static void testProjects() {
     CHECK(projectToJson(back) == text);
 
     auto load = [](const std::string& param) {
-        return projectFromJson(R"({"format": "comp", "version": 1, "nodes": [{"name": "G", "type": "Grade", "params": {"gain": )" +
+        return projectFromJson(R"({"format": "puke", "version": 1, "nodes": [{"name": "G", "type": "Grade", "params": {"gain": )" +
                                    param + "}}]}",
                                "p");
     };

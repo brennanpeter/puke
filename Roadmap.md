@@ -1,6 +1,6 @@
-# comp roadmap
+# puke roadmap
 
-comp is an open source, node-based VFX compositor modeled on Nuke. It is
+puke is an open source, node-based VFX compositor modeled on Nuke. It is
 being built as a headless C++ library first; a GUI comes later and sits on
 top of the same public API as every other front end.
 
@@ -45,41 +45,41 @@ Key decisions:
 - [x] **Evaluation engine**: plan, info, region and compute passes; shared
   inputs computed once; images freed as soon as they're no longer needed.
 - [x] **Grade, Merge, Transform nodes**, with golden-image tests.
-- [x] **Command-line renderer** (`comp_render`): runs a project's Write
+- [x] **Command-line renderer** (`puke_render`): runs a project's Write
   nodes over a frame range, or converts one input to one output.
 - [x] **Tiles and threading**: 64×64 tiles on a fixed grid, built-in thread
   pool, `--threads` flag; output identical for any thread count or tile
   size.
 - [x] **Tile cache**: memory-bounded LRU keyed on node hash and tile; off by
   default; Read invalidates on file changes.
-- [x] **Python bindings** (pybind11, `import comp`): graphs, nodes and
+- [x] **Python bindings** (pybind11, `import puke`): graphs, nodes and
   parameters, rendering, Write execution, tile cache; images readable from
   numpy without copying. Optional in the build. Node types are created by
   name through a registry that project files will reuse.
-- [x] **Project files** (`.comp`, JSON): versioned, diff-friendly, strict
+- [x] **Project files** (`.puke`, JSON): versioned, diff-friendly, strict
   loading with errors that name the file and node; atomic saves. Saved and
-  loaded from C++, Python and `comp_render`.
+  loaded from C++, Python and `puke_render`.
 - [x] **Color management** (OpenColorIO 2.1+): one linear working space
   (the config's `scene_linear` role); Read and Write convert in and out
   (`colorspace`, default `auto`: float files linear, integer files sRGB);
-  ColorSpace node. Config from `$OCIO`, or comp's small built-in ACES config
+  ColorSpace node. Config from `$OCIO`, or puke's small built-in ACES config
   with ACES studio-config names.
 - [x] **OpenFX plugin hosting** (OFX 1.4, Linux): plugins from
   `$OFX_PLUGIN_PATH` and `/usr/OFX/Plugins` become `ofx:<id>` node types;
   Filter and General contexts, float RGBA/Alpha, tiles, declared thread
-  safety, all common parameter types. Tested with comp's own test plugins
+  safety, all common parameter types. Tested with puke's own test plugins
   and the official OpenFX examples.
 - [x] **Render snapshots**: renders work from a frozen copy of the graph
   (copy-on-write parameters, shared node ownership), so it can be edited
   while renders run. Python releases the GIL during renders.
-- [x] **GUI, first milestone** (`comp_gui`, Qt 6 Widgets): node graph editor
+- [x] **GUI, first milestone** (`puke_gui`, Qt 6 Widgets): node graph editor
   (Tab to create, drag to connect, positions saved in projects), properties
   panel built from each node type's parameter descriptions (OFX included),
   viewer on its own render thread with the tile cache, OCIO display/view,
   exposure, channels, pan/zoom and a pixel readout; open/save projects.
 - [x] **GUI, second milestone**: undo/redo for every edit; rename, cut/copy/
   paste/duplicate (the clipboard holds project text), Backdrop nodes;
-  project frame range and fps (saved in projects, used by `comp_render`);
+  project frame range and fps (saved in projects, used by `puke_render`);
   a timeline with playback that never skips frames, backed by a cache of
   the frames the viewer has shown; rendering Write nodes in the background
   with progress, a log and cancel, while editing goes on; the viewer
@@ -169,12 +169,12 @@ Smaller items already marked in the code:
   rendered, but paramGetValueAtTime() ignores its time argument. Python's
   `node.params` lists plain values only (animated ones: `keys()`).
   ThreadSanitizer reports remain inside Qt's own event posting (Qt isn't
-  built with TSan); comp's data is race-free (`gui/`).
+  built with TSan); puke's data is race-free (`gui/`).
 - **OFX**: no access to other frames than the one rendering (nor to
   parameter values at other times), no parameter interacts, no Draw suite
   (overlays need OpenGL), no viewport positions for pen events,
   Linux bundles only. Plugins' own multithreading runs on one thread
-  (comp already renders tiles on every core). Parametric parameters
+  (puke already renders tiles on every core). Parametric parameters
   (curves) aren't hosted. Plugins are never unloaded (`src/ofx/`).
 - **Color**: Read and Write convert on one thread (only integer files, or
   an explicit color space, need converting at all). Color is always treated

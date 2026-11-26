@@ -16,7 +16,7 @@
 #include "Document.h"
 #include "Viewer.h"
 
-namespace compgui {
+namespace pukegui {
 
 namespace {
 constexpr double kMargin = 12;
@@ -37,7 +37,7 @@ TimeBar::TimeBar(Document& doc, Viewer& viewer, QWidget* parent) : QWidget(paren
 
 std::vector<double> TimeBar::keyFrames() const {
     std::vector<double> out;
-    if (comp::Node* n = doc_.selected())
+    if (puke::Node* n = doc_.selected())
         for (const auto& [key, curve] : n->curves())
             for (const auto& k : curve.keys()) out.push_back(k.frame);
     std::sort(out.begin(), out.end());
@@ -220,13 +220,13 @@ void Timeline::syncFromDoc() {
 }
 
 void Timeline::applySettings() {
-    comp::ProjectSettings s = doc_.settings();
+    puke::ProjectSettings s = doc_.settings();
     s.firstFrame = first_->value();
     s.lastFrame = last_->value();
     s.fps = fps_->value();
     try {
         doc_.setSettings(s);
-    } catch (const comp::Error& e) {
+    } catch (const puke::Error& e) {
         syncFromDoc();
         QMessageBox::warning(this, "Project settings", QString::fromStdString(e.what()));
     }
@@ -272,4 +272,4 @@ void Timeline::tick() {
     }
 }
 
-}  // namespace compgui
+}  // namespace pukegui

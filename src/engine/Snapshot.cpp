@@ -1,9 +1,9 @@
-#include "comp/engine/Snapshot.h"
+#include "puke/engine/Snapshot.h"
 
 #include <string>
 #include <unordered_map>
 
-namespace comp {
+namespace puke {
 
 // Iterative depth-first search, so deep graphs can't overflow the call stack.
 Snapshot Snapshot::of(const Node& output) {
@@ -98,4 +98,4 @@ Snapshot Snapshot::at(double frame) const {
     return out;
 }
 
-}  // namespace comp
+}  // namespace puke

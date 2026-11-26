@@ -1,4 +1,4 @@
-// Shared helpers for the comp test programs. Deliberately tiny: no framework,
+// Shared helpers for the puke test programs. Deliberately tiny: no framework,
 // just checks that count failures and keep going.
 #pragma once
 
@@ -12,7 +12,7 @@
 
 #include <OpenImageIO/imageio.h>
 
-#include "comp/graph/Node.h"
+#include "puke/graph/Node.h"
 
 namespace test {
 
@@ -28,12 +28,12 @@ inline int finish(const char* suite) {
     return 1;
 }
 
-// Runs `f` and returns the comp::Error message it threw, or "" if none.
+// Runs `f` and returns the puke::Error message it threw, or "" if none.
 template <typename F>
 std::string errorFrom(F&& f) {
     try {
         f();
-    } catch (const comp::Error& e) {
+    } catch (const puke::Error& e) {
         return e.what();
     }
     return {};
@@ -59,7 +59,7 @@ std::string errorFrom(F&& f) {
         }                                                                             \
     } while (0)
 
-// Checks that `expr` throws comp::Error whose message contains `substr`.
+// Checks that `expr` throws puke::Error whose message contains `substr`.
 #define CHECK_THROWS(expr, substr)                                                    \
     do {                                                                              \
         const std::string msg_ = test::errorFrom([&] { (void)(expr); });              \
@@ -75,25 +75,25 @@ namespace test {
 using PixelFn = std::function<float(int x, int y, int c)>;
 
 // A node whose pixels come from a function, inside `box` (zero outside).
-class SourceNode : public comp::Node {
+class SourceNode : public puke::Node {
 public:
-    SourceNode(std::string name, comp::Box box, comp::ChannelList channels, PixelFn fn,
-               comp::Box format = {0, 0, 32, 32})
+    SourceNode(std::string name, puke::Box box, puke::ChannelList channels, PixelFn fn,
+               puke::Box format = {0, 0, 32, 32})
         : Node(std::move(name)), box_(box), format_(format), channels_(std::move(channels)), fn_(std::move(fn)) {}
 
     const char* typeName() const override { return "Source"; }
-    comp::ImageInfo computeInfo(const comp::RenderContext&,
-                                std::span<const comp::ImageInfo* const>) const override {
+    puke::ImageInfo computeInfo(const puke::RenderContext&,
+                                std::span<const puke::ImageInfo* const>) const override {
         return {box_, format_, channels_};
     }
-    comp::Image compute(const comp::RenderContext&, const comp::Box& region,
-                        std::span<const comp::Image* const>) const override {
+    puke::Image compute(const puke::RenderContext&, const puke::Box& region,
+                        std::span<const puke::Image* const>) const override {
         {
             std::lock_guard lock(probeMutex_);  // the engine calls this from several threads
             requested = requested.unite(region);
             ++computeCalls;
         }
-        comp::Image out(region, channels_);
+        puke::Image out(region, channels_);
         for (int y = region.y0; y < region.y1; ++y)
             for (int x = region.x0; x < region.x1; ++x)
                 for (int c = 0; c < out.numChannels(); ++c) out.pixel(x, y)[c] = fn_(x, y, c);
@@ -102,7 +102,7 @@ public:
 
     // Test instrumentation only; real nodes must not mutate during compute().
     // `requested` is the bounding box of every region asked for.
-    mutable comp::Box requested;
+    mutable puke::Box requested;
     mutable int computeCalls = 0;
     void resetProbe() const {
         std::lock_guard lock(probeMutex_);
@@ -112,22 +112,22 @@ public:
 
 private:
     mutable std::mutex probeMutex_;
-    comp::Box box_, format_;
-    comp::ChannelList channels_;
+    puke::Box box_, format_;
+    puke::ChannelList channels_;
     PixelFn fn_;
 };
 
 struct ExrOptions {
-    comp::Box dataWindow{0, 0, 32, 32};
-    comp::Box displayWindow{0, 0, 32, 32};
-    comp::ChannelList channels{"R", "G", "B", "A"};
+    puke::Box dataWindow{0, 0, 32, 32};
+    puke::Box displayWindow{0, 0, 32, 32};
+    puke::ChannelList channels{"R", "G", "B", "A"};
     OIIO::TypeDesc type = OIIO::TypeDesc::FLOAT;
     int tileSize = 0;  // 0 = scanline file
 };
 
 // Writes an image file with OIIO directly, independent of the code under test.
 inline void writeImage(const std::string& path, const ExrOptions& o, const PixelFn& fn) {
-    const comp::Box& d = o.dataWindow;
+    const puke::Box& d = o.dataWindow;
     const int nch = static_cast<int>(o.channels.size());
     OIIO::ImageSpec spec(d.width(), d.height(), nch, o.type);
     spec.x = d.x0;

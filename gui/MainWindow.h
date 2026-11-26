@@ -4,7 +4,7 @@
 
 class QTabWidget;
 
-namespace compgui {
+namespace pukegui {
 
 class Document;
 class NodeGraphView;
@@ -14,7 +14,7 @@ class RenderDialog;
 class Timeline;
 class Viewer;
 
-// comp's look: Fusion style with a dark palette. Call once, after creating
+// puke's look: Fusion style with a dark palette. Call once, after creating
 // the QApplication.
 void applyTheme();
 
@@ -57,4 +57,4 @@ private:
     RenderDialog* render_;
 };
 
-}  // namespace compgui
+}  // namespace pukegui

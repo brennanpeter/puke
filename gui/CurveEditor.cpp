@@ -16,7 +16,7 @@
 
 #include "Document.h"
 
-namespace compgui {
+namespace pukegui {
 
 namespace {
 
@@ -25,30 +25,30 @@ constexpr double kHandle = 40;   // tangent handle length, pixels
 constexpr double kMargin = 30;   // around framed curves, pixels
 
 // The names of a value's components ("" for a plain number).
-std::vector<std::string> componentNames(const comp::ParamValue& v) {
-    if (std::holds_alternative<comp::Vec2>(v)) return {"x", "y"};
-    if (std::holds_alternative<comp::Color>(v)) return {"r", "g", "b", "a"};
+std::vector<std::string> componentNames(const puke::ParamValue& v) {
+    if (std::holds_alternative<puke::Vec2>(v)) return {"x", "y"};
+    if (std::holds_alternative<puke::Color>(v)) return {"r", "g", "b", "a"};
     if (std::holds_alternative<double>(v) || std::holds_alternative<int>(v)) return {""};
     return {};  // strings, shapes, bools: nothing to draw
 }
 
-void setComponent(comp::ParamValue& v, int c, double x) {
+void setComponent(puke::ParamValue& v, int c, double x) {
     if (auto* d = std::get_if<double>(&v)) *d = x;
     else if (auto* i = std::get_if<int>(&v)) *i = static_cast<int>(std::lround(x));
-    else if (auto* a = std::get_if<comp::Vec2>(&v)) (*a)[c] = x;
-    else if (auto* col = std::get_if<comp::Color>(&v)) (*col)[c] = x;
+    else if (auto* a = std::get_if<puke::Vec2>(&v)) (*a)[c] = x;
+    else if (auto* col = std::get_if<puke::Color>(&v)) (*col)[c] = x;
 }
 
 // A curve's colour: by component for Vec2 and Color, by name otherwise, so
 // it's the same in the list and the graph, whatever else is shown.
-QColor colorFor(const comp::ParamValue& v, const CurveRef& c) {
+QColor colorFor(const puke::ParamValue& v, const CurveRef& c) {
     const int component = c.component;
     const std::size_t index = std::hash<std::string>{}(c.param);
-    if (std::holds_alternative<comp::Color>(v)) {
+    if (std::holds_alternative<puke::Color>(v)) {
         static const QColor rgba[4] = {QColor(235, 90, 90), QColor(110, 200, 100), QColor(100, 150, 240), QColor(190, 190, 190)};
         return rgba[component];
     }
-    if (std::holds_alternative<comp::Vec2>(v)) return component == 0 ? QColor(235, 110, 90) : QColor(120, 200, 110);
+    if (std::holds_alternative<puke::Vec2>(v)) return component == 0 ? QColor(235, 110, 90) : QColor(120, 200, 110);
     static const QColor palette[] = {QColor(240, 170, 60), QColor(90, 200, 220), QColor(220, 120, 220), QColor(200, 210, 90)};
     return palette[index % 4];
 }
@@ -74,7 +74,7 @@ CurveView::CurveView(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc
     connect(&doc_, &Document::paramChanged, this, [this] {
         // Undo can take keys away: forget them.
         std::erase_if(selected_, [this](const Selected& s) {
-            const comp::Curve* c = curveOf(s.curve);
+            const puke::Curve* c = curveOf(s.curve);
             return !c || !c->keyAt(s.frame);
         });
         update();
@@ -82,17 +82,17 @@ CurveView::CurveView(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc
     connect(&doc_, &Document::frameChanged, this, qOverload<>(&QWidget::update));
 }
 
-comp::Node* CurveView::node() const { return doc_.selected(); }
+puke::Node* CurveView::node() const { return doc_.selected(); }
 
-const comp::Curve* CurveView::curveOf(const CurveRef& c) const {
-    comp::Node* n = node();
+const puke::Curve* CurveView::curveOf(const CurveRef& c) const {
+    puke::Node* n = node();
     return n ? n->curve(c.param) : nullptr;
 }
 
 std::optional<double> CurveView::componentAt(const CurveRef& c, double frame) const {
-    const comp::Curve* curve = curveOf(c);
+    const puke::Curve* curve = curveOf(c);
     if (!curve || curve->empty()) return std::nullopt;
-    const auto n = comp::Curve::components(curve->valueAt(frame));
+    const auto n = puke::Curve::components(curve->valueAt(frame));
     if (!n || c.component >= int(n->size())) return std::nullopt;
     return (*n)[c.component];
 }
@@ -117,7 +117,7 @@ void CurveView::frameAll() {
     double f0 = doc_.settings().firstFrame, f1 = doc_.settings().lastFrame;
     double v0 = std::numeric_limits<double>::infinity(), v1 = -v0;
     for (const CurveRef& c : curves_) {
-        const comp::Curve* curve = curveOf(c);
+        const puke::Curve* curve = curveOf(c);
         if (!curve || curve->empty()) continue;
         const double a = curve->keys().front().frame, b = curve->keys().back().frame;
         f0 = std::min(f0, a), f1 = std::max(f1, b);
@@ -142,10 +142,10 @@ std::optional<CurveView::Selected> CurveView::keyAt(QPointF w) const {
     std::optional<Selected> best;
     double bestD = kHit;
     for (const CurveRef& c : curves_) {
-        const comp::Curve* curve = curveOf(c);
+        const puke::Curve* curve = curveOf(c);
         if (!curve) continue;
         for (const auto& k : curve->keys()) {
-            const auto n = comp::Curve::components(k.value);
+            const auto n = puke::Curve::components(k.value);
             if (!n || c.component >= int(n->size())) continue;
             const QPointF p = toWidget(k.frame, (*n)[c.component]);
             const double d = std::hypot(p.x() - w.x(), p.y() - w.y());
@@ -156,12 +156,12 @@ std::optional<CurveView::Selected> CurveView::keyAt(QPointF w) const {
 }
 
 QPointF CurveView::handlePos(const Selected& s, int side) const {
-    const comp::Curve* curve = curveOf(s.curve);
+    const puke::Curve* curve = curveOf(s.curve);
     const auto& keys = curve->keys();
     const std::size_t i = std::find_if(keys.begin(), keys.end(), [&](const auto& k) { return k.frame == s.frame; }) - keys.begin();
     const auto slope = curve->slopeAt(i);
     const double m = s.curve.component < int(slope.size()) ? slope[s.curve.component] : 0;
-    const auto n = comp::Curve::components(keys[i].value);
+    const auto n = puke::Curve::components(keys[i].value);
     const QPointF at = toWidget(s.frame, (*n)[s.curve.component]);
     const double dx = frameScale_, dy = -m * valueScale_, len = std::hypot(dx, dy);
     return at + QPointF(dx, dy) * (side * kHandle / len);
@@ -169,9 +169,9 @@ QPointF CurveView::handlePos(const Selected& s, int side) const {
 
 std::optional<std::pair<CurveView::Selected, int>> CurveView::handleAt(QPointF w) const {
     for (const Selected& s : selected_) {
-        const comp::Curve* curve = curveOf(s.curve);
-        const comp::Curve::Key* k = curve ? curve->keyAt(s.frame) : nullptr;
-        if (!k || !comp::Curve::components(k->value)) continue;
+        const puke::Curve* curve = curveOf(s.curve);
+        const puke::Curve::Key* k = curve ? curve->keyAt(s.frame) : nullptr;
+        if (!k || !puke::Curve::components(k->value)) continue;
         for (int side : {-1, 1}) {
             const QPointF h = handlePos(s, side);
             if (std::hypot(h.x() - w.x(), h.y() - w.y()) <= kHit) return std::pair{s, side};
@@ -182,8 +182,8 @@ std::optional<std::pair<CurveView::Selected, int>> CurveView::handleAt(QPointF w
 
 // --- edits
 
-void CurveView::editCurves(const std::vector<std::pair<std::string, comp::Curve>>& curves, const QString& text) {
-    comp::Node* n = node();
+void CurveView::editCurves(const std::vector<std::pair<std::string, puke::Curve>>& curves, const QString& text) {
+    puke::Node* n = node();
     if (!n) return;
     if (!editOpen_) {
         doc_.beginEdit(text);
@@ -196,20 +196,20 @@ void CurveView::dragKeysTo(QPointF w) {
     const double dframe = std::round((w.x() - pressAt_.x()) / frameScale_);
     const double dvalue = -(w.y() - pressAt_.y()) / valueScale_;
     // The selection as it was at the press: dragStart_ order matches.
-    std::vector<std::pair<std::string, comp::Curve>> out;
+    std::vector<std::pair<std::string, puke::Curve>> out;
     std::vector<Selected> moved;
     for (const auto& [param, start] : dragStart_) {
-        comp::Curve curve = start;
+        puke::Curve curve = start;
         // Which keys of this parameter move, and which of their components.
         std::map<double, std::set<int>> moving;
         for (const Selected& s : selected_)
             if (s.curve.param == param) moving[s.frame - dragOffset_].insert(s.curve.component);
         // Take them all out first, so keys moving past each other don't collide.
-        std::vector<comp::Curve::Key> keys;
+        std::vector<puke::Curve::Key> keys;
         for (const auto& [f, comps] : moving)
-            if (const comp::Curve::Key* k = start.keyAt(f)) {
-                comp::Curve::Key copy = *k;
-                const auto n = comp::Curve::components(copy.value);
+            if (const puke::Curve::Key* k = start.keyAt(f)) {
+                puke::Curve::Key copy = *k;
+                const auto n = puke::Curve::components(copy.value);
                 for (int c : comps)
                     if (n && c < int(n->size())) setComponent(copy.value, c, (*n)[c] + dvalue);
                 copy.frame = f + dframe;
@@ -227,8 +227,8 @@ void CurveView::dragKeysTo(QPointF w) {
     editCurves(out, "Move keys");
 }
 
-void CurveView::setInterp(comp::Curve::Interp interp) {
-    std::map<std::string, comp::Curve> curves;
+void CurveView::setInterp(puke::Curve::Interp interp) {
+    std::map<std::string, puke::Curve> curves;
     for (const Selected& s : selected_) {
         if (!curves.count(s.curve.param)) curves[s.curve.param] = *curveOf(s.curve);
         curves[s.curve.param].setInterp(s.frame, interp);
@@ -238,12 +238,12 @@ void CurveView::setInterp(comp::Curve::Interp interp) {
 }
 
 void CurveView::setTangents(bool flat) {
-    std::map<std::string, comp::Curve> curves;
+    std::map<std::string, puke::Curve> curves;
     for (const Selected& s : selected_) {
         if (!curves.count(s.curve.param)) curves[s.curve.param] = *curveOf(s.curve);
-        comp::Curve& c = curves[s.curve.param];
-        const comp::Curve::Key* k = c.keyAt(s.frame);
-        const auto n = k ? comp::Curve::components(k->value) : std::nullopt;
+        puke::Curve& c = curves[s.curve.param];
+        const puke::Curve::Key* k = c.keyAt(s.frame);
+        const auto n = k ? puke::Curve::components(k->value) : std::nullopt;
         if (!n) continue;
         c.setSlope(s.frame, flat ? std::vector<double>(n->size(), 0.0) : std::vector<double>{});
     }
@@ -253,7 +253,7 @@ void CurveView::setTangents(bool flat) {
 
 void CurveView::deleteSelected() {
     if (selected_.empty()) return;
-    std::map<std::string, comp::Curve> curves;
+    std::map<std::string, puke::Curve> curves;
     for (const Selected& s : selected_) {
         if (!curves.count(s.curve.param)) curves[s.curve.param] = *curveOf(s.curve);
         curves[s.curve.param].removeKey(s.frame);
@@ -330,10 +330,10 @@ void CurveView::mouseMoveEvent(QMouseEvent* e) {
             break;
         case Drag::Tangent: {
             const auto& [s, side] = *dragHandle_;
-            comp::Curve c = *curveOf(s.curve);
+            puke::Curve c = *curveOf(s.curve);
             const auto& keys = c.keys();
             const std::size_t i = std::find_if(keys.begin(), keys.end(), [&](const auto& k) { return k.frame == s.frame; }) - keys.begin();
-            const auto n = comp::Curve::components(keys[i].value);
+            const auto n = puke::Curve::components(keys[i].value);
             const QPointF at = toWidget(s.frame, (*n)[s.curve.component]);
             QPointF v = e->position() - at;
             if (std::abs(v.x()) < 1) v.setX(side);  // never vertical
@@ -369,7 +369,7 @@ void CurveView::mouseDoubleClickEvent(QMouseEvent* e) {
             if (d <= bestD) best = c, bestD = d;
         }
     if (!best) return;
-    comp::Curve c = *curveOf(*best);
+    puke::Curve c = *curveOf(*best);
     c.setKey(frame, c.valueAt(frame));
     editCurves({{best->param, c}}, "Add key");
     if (editOpen_) doc_.endEdit(), editOpen_ = false;
@@ -397,7 +397,7 @@ void CurveView::keyPressEvent(QKeyEvent* e) {
 void CurveView::contextMenuEvent(QContextMenuEvent* e) {
     QMenu menu;
     const bool any = !selected_.empty();
-    using I = comp::Curve::Interp;
+    using I = puke::Curve::Interp;
     for (auto [interp, name] : {std::pair{I::Smooth, "Smooth"}, {I::Linear, "Linear"}, {I::Constant, "Constant"}})
         menu.addAction(name, [this, interp] { setInterp(interp); })->setEnabled(any);
     menu.addSeparator();
@@ -445,7 +445,7 @@ void CurveView::paintEvent(QPaintEvent*) {
 
     p.setRenderHint(QPainter::Antialiasing);
     for (const CurveRef& c : curves_) {
-        const comp::Curve* curve = curveOf(c);
+        const puke::Curve* curve = curveOf(c);
         if (!curve || curve->empty()) continue;
         const QColor color = colorFor(curve->keys()[0].value, c);
         QPainterPath line;
@@ -462,7 +462,7 @@ void CurveView::paintEvent(QPaintEvent*) {
         p.drawPath(line);
 
         for (const auto& k : curve->keys()) {
-            const auto n = comp::Curve::components(k.value);
+            const auto n = puke::Curve::components(k.value);
             if (!n || c.component >= int(n->size())) continue;
             const QPointF at = toWidget(k.frame, (*n)[c.component]);
             const Selected self{c, k.frame};
@@ -517,7 +517,7 @@ CurveEditor::CurveEditor(Document& doc, QWidget* parent) : QWidget(parent), doc_
         view_->setCurves(shown);
     });
     connect(&doc_, &Document::selectionChanged, this, &CurveEditor::rebuild);
-    connect(&doc_, &Document::paramChanged, this, [this](comp::Node* n) {
+    connect(&doc_, &Document::paramChanged, this, [this](puke::Node* n) {
         if (n == node_) rebuild();
     });
     connect(&doc_, &Document::structureChanged, this, &CurveEditor::rebuild);
@@ -525,7 +525,7 @@ CurveEditor::CurveEditor(Document& doc, QWidget* parent) : QWidget(parent), doc_
 }
 
 void CurveEditor::rebuild() {
-    comp::Node* n = doc_.selected();
+    puke::Node* n = doc_.selected();
     std::vector<std::string> params;
     if (n)
         for (const auto& [key, curve] : n->curves())
@@ -562,4 +562,4 @@ void CurveEditor::rebuild() {
     if (newNode) view_->frameAll();
 }
 
-}  // namespace compgui
+}  // namespace pukegui

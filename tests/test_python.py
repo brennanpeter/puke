@@ -1,4 +1,4 @@
-"""Tests for the comp Python module.
+"""Tests for the puke Python module.
 
 Run by ctest with PYTHONPATH pointing at the built module, or by hand:
     PYTHONPATH=build/python python3 tests/test_python.py
@@ -13,7 +13,7 @@ import tempfile
 import unittest
 import zlib
 
-import comp
+import puke
 
 try:
     import numpy as np
@@ -44,7 +44,7 @@ def test_pixel(x, y):
 
 class TempDirTest(unittest.TestCase):
     def setUp(self):
-        self.dir = tempfile.mkdtemp(prefix="comp_python_test_")
+        self.dir = tempfile.mkdtemp(prefix="puke_python_test_")
         self.png = os.path.join(self.dir, "in.png")
         write_png(self.png, 16, 8, test_pixel)
 
@@ -57,13 +57,13 @@ class TempDirTest(unittest.TestCase):
 
 class GraphTests(unittest.TestCase):
     def test_node_types(self):
-        types = comp.node_types()
+        types = puke.node_types()
         builtin = ["Backdrop", "Blur", "ColorSpace", "Constant", "Crop", "Grade", "Merge", "Premult", "Read", "Reformat", "Roto", "Shuffle", "Transform", "Unpremult", "Write"]
         self.assertEqual(types[:len(builtin)], builtin)
         self.assertTrue(all(t.startswith("ofx:") for t in types[len(builtin):]))
 
     def test_create_names_and_params(self):
-        g = comp.Graph()
+        g = puke.Graph()
         a = g.create("Grade")
         b = g.create("Grade", gain=1.5, channels="rgba")
         c = g.create("Grade", "Hero")
@@ -76,15 +76,15 @@ class GraphTests(unittest.TestCase):
         self.assertEqual(g.find("Nope"), None)
         with self.assertRaises(KeyError):
             g["Nope"]
-        with self.assertRaisesRegex(comp.Error, "a node named 'Hero' already exists"):
+        with self.assertRaisesRegex(puke.Error, "a node named 'Hero' already exists"):
             g.create("Grade", "Hero")
-        with self.assertRaisesRegex(comp.Error, "unknown node type 'Defocus'"):
+        with self.assertRaisesRegex(puke.Error, "unknown node type 'Defocus'"):
             g.create("Defocus")
         # A failed create adds nothing.
         self.assertEqual(len(g), 3)
 
     def test_param_types(self):
-        n = comp.Graph().create("Transform")
+        n = puke.Graph().create("Transform")
         n["flag"] = True
         n["count"] = 3
         n["amount"] = 0.5
@@ -116,7 +116,7 @@ class GraphTests(unittest.TestCase):
         self.assertEqual(n["rotate"], 45.0)
 
     def test_specs_and_positions(self):
-        g = comp.Graph()
+        g = puke.Graph()
         grade = g.create("Grade")
         specs = {s["name"]: s for s in grade.param_specs}
         self.assertEqual(specs["gain"]["kind"], "color")
@@ -132,12 +132,12 @@ class GraphTests(unittest.TestCase):
 
     @unittest.skipUnless(np, "needs numpy")
     def test_numpy_params(self):
-        n = comp.Graph().create("Transform")
+        n = puke.Graph().create("Transform")
         n.set(count=np.int64(4), amount=np.float32(0.25), translate=np.array([1.5, 2.5]))
         self.assertEqual((n["count"], n["amount"], n["translate"]), (4, 0.25, (1.5, 2.5)))
 
     def test_connections(self):
-        g = comp.Graph()
+        g = puke.Graph()
         read = g.create("Read")
         grade = g.create("Grade")
         merge = g.create("Merge")
@@ -149,35 +149,35 @@ class GraphTests(unittest.TestCase):
         self.assertEqual(set(g.consumers(read)), {grade, merge})
         self.assertTrue(merge.input_optional(1) and not merge.input_optional(0))
 
-        with self.assertRaisesRegex(comp.Error, "would create a cycle"):
+        with self.assertRaisesRegex(puke.Error, "would create a cycle"):
             g.connect(merge, grade)
-        with self.assertRaisesRegex(comp.Error, "out of range"):
+        with self.assertRaisesRegex(puke.Error, "out of range"):
             g.connect(read, grade, 3)
-        other = comp.Graph().create("Grade")
-        with self.assertRaisesRegex(comp.Error, "does not belong to this graph"):
+        other = puke.Graph().create("Grade")
+        with self.assertRaisesRegex(puke.Error, "does not belong to this graph"):
             g.connect(other, merge, 1)
 
         g.disconnect(merge, 1)
         self.assertEqual(merge.input(1), None)
 
     def test_removed_nodes(self):
-        g = comp.Graph()
+        g = puke.Graph()
         read = g.create("Read")
         grade = g.create("Grade")
         g.connect(read, grade)
         g.remove(read)
         self.assertEqual(grade.input(0), None)
         self.assertEqual(repr(read), "<removed node>")
-        with self.assertRaisesRegex(comp.Error, "removed from its graph"):
+        with self.assertRaisesRegex(puke.Error, "removed from its graph"):
             read.name
-        with self.assertRaisesRegex(comp.Error, "removed from its graph"):
+        with self.assertRaisesRegex(puke.Error, "removed from its graph"):
             read["file"] = "x.exr"
         # A new node with the same name is a different node.
         again = g.create("Read", "Read1")
         self.assertNotEqual(again, read)
 
     def test_nodes_keep_their_graph_alive(self):
-        g = comp.Graph()
+        g = puke.Graph()
         node = g.create("Grade", gain=2.0)
         del g
         gc.collect()
@@ -187,23 +187,23 @@ class GraphTests(unittest.TestCase):
 
 class BoxTests(unittest.TestCase):
     def test_box(self):
-        b = comp.Box(1, 2, 5, 10)
+        b = puke.Box(1, 2, 5, 10)
         self.assertEqual((b.width, b.height, b.area), (4, 8, 32))
         self.assertEqual(b, (1, 2, 5, 10))
         self.assertEqual(tuple(b), (1, 2, 5, 10))
         self.assertEqual(b.intersect((3, 0, 20, 4)), (3, 2, 5, 4))
         self.assertEqual(b.unite((0, 0, 1, 1)), (0, 0, 5, 10))
         self.assertEqual(b.padded(1), (0, 1, 6, 11))
-        self.assertTrue(comp.Box().empty() and b.contains(1, 2) and not b.contains(5, 2))
+        self.assertTrue(puke.Box().empty() and b.contains(1, 2) and not b.contains(5, 2))
         self.assertEqual(repr(b), "Box(1, 2, 5, 10)")
-        self.assertEqual(len({comp.Box(0, 0, 1, 1), comp.Box(0, 0, 1, 1)}), 1)
+        self.assertEqual(len({puke.Box(0, 0, 1, 1), puke.Box(0, 0, 1, 1)}), 1)
 
 
 class RenderTests(TempDirTest):
     def test_info_and_render(self):
-        g = comp.Graph()
+        g = puke.Graph()
         read = g.create("Read", file=self.png, colorspace="Raw")  # raw values: no sRGB decode
-        e = comp.Engine(threads=2, tile_size=4)
+        e = puke.Engine(threads=2, tile_size=4)
         info = e.info(read)
         self.assertEqual(info.data_window, (0, 0, 16, 8))
         self.assertEqual(info.channels, ["R", "G", "B", "A"])
@@ -223,18 +223,18 @@ class RenderTests(TempDirTest):
         self.assertEqual(part.pixel(1, 1), img.pixel(1, 1))
 
     def test_memoryview_without_numpy(self):
-        read = comp.Graph().create("Read", file=self.png, colorspace="Raw")
-        mv = memoryview(comp.Engine().render(read))
+        read = puke.Graph().create("Read", file=self.png, colorspace="Raw")
+        mv = memoryview(puke.Engine().render(read))
         self.assertEqual((mv.shape, mv.format, mv.readonly), ((8, 16, 4), "f", True))
         self.assertAlmostEqual(mv[2, 3, 0], 30 / 255, places=5)
 
     @unittest.skipUnless(np, "needs numpy")
     def test_numpy_view(self):
-        g = comp.Graph()
+        g = puke.Graph()
         read = g.create("Read", file=self.png, colorspace="Raw")
         xf = g.create("Transform", translate=(5, 3), filter="nearest")
         g.connect(read, xf)
-        img = comp.Engine().render(xf)
+        img = puke.Engine().render(xf)
         a = np.asarray(img)
         self.assertEqual((a.shape, a.dtype), ((8, 16, 4), np.float32))
         self.assertFalse(a.flags.writeable)
@@ -249,11 +249,11 @@ class RenderTests(TempDirTest):
         self.assertAlmostEqual(float(a[2, 3, 0]), 30 / 255, places=5)
 
     def test_cache_and_stats(self):
-        g = comp.Graph()
+        g = puke.Graph()
         read = g.create("Read", file=self.png)
         grade = g.create("Grade", gain=2.0)
         g.connect(read, grade)
-        e = comp.Engine(tile_size=4, cache_bytes=16 << 20)
+        e = puke.Engine(tile_size=4, cache_bytes=16 << 20)
         self.assertEqual(e.cache_bytes, 16 << 20)
         e.render(grade)
         self.assertEqual(e.last_stats.tiles_from_cache, 0)
@@ -271,14 +271,14 @@ class RenderTests(TempDirTest):
         # Renders release the GIL and work from a snapshot: other threads can
         # keep editing the graph, and several engines can render at once.
         import threading
-        g = comp.Graph()
+        g = puke.Graph()
         read = g.create("Read", file=self.png, colorspace="Raw")
         grade = g.create("Grade", multiply=1.0)
         g.connect(read, grade)
         errors, results = [], []
 
         def worker():
-            e = comp.Engine(threads=2, tile_size=4)
+            e = puke.Engine(threads=2, tile_size=4)
             try:
                 for _ in range(20):
                     results.append(e.render(grade).pixel(3, 2)[0])
@@ -297,13 +297,13 @@ class RenderTests(TempDirTest):
         self.assertTrue(all(abs(v - base) < 1e-5 or abs(v - 2 * base) < 1e-5 for v in results))
 
     def test_write_and_read_back(self):
-        g = comp.Graph()
+        g = puke.Graph()
         read = g.create("Read", file=self.png, colorspace="Raw")
         grade = g.create("Grade", multiply=0.5)
         write = g.create("Write", file=self.path("out/out.####.exr"), datatype="float")
         g.connect(read, grade)
         g.connect(grade, write)
-        e = comp.Engine()
+        e = puke.Engine()
         written = write.execute(e, frame=7)
         self.assertEqual(written, self.path("out/out.0007.exr"))
         self.assertTrue(os.path.exists(written))
@@ -317,44 +317,44 @@ class RenderTests(TempDirTest):
             grade.execute(e)
 
     def test_errors(self):
-        g = comp.Graph()
+        g = puke.Graph()
         grade = g.create("Grade")
-        e = comp.Engine()
-        with self.assertRaisesRegex(comp.Error, "Grade1: input 0 is not connected"):
+        e = puke.Engine()
+        with self.assertRaisesRegex(puke.Error, "Grade1: input 0 is not connected"):
             e.render(grade)
         read = g.create("Read", file=self.path("missing.exr"))
         g.connect(read, grade)
-        with self.assertRaisesRegex(comp.Error, "Read1: cannot open"):
+        with self.assertRaisesRegex(puke.Error, "Read1: cannot open"):
             e.render(grade)
-        self.assertTrue(issubclass(comp.Error, Exception))
+        self.assertTrue(issubclass(puke.Error, Exception))
         with self.assertRaises(ValueError):
-            comp.Engine(threads=-1)
-        with self.assertRaisesRegex(comp.Error, "tile size"):
-            comp.Engine(tile_size=0)
+            puke.Engine(threads=-1)
+        with self.assertRaisesRegex(puke.Error, "tile size"):
+            puke.Engine(tile_size=0)
 
 
 class ColorTests(TempDirTest):
     def test_config(self):
-        c = comp.ColorConfig.current()
+        c = puke.ColorConfig.current()
         self.assertEqual(c.source, "built-in")  # ctest clears $OCIO
         self.assertEqual(c.working_space, "ACEScg")
         self.assertIn("sRGB - Texture", c.color_spaces)
         self.assertTrue(c.has("matte_paint") and not c.has("nope"))
         self.assertEqual(c.resolve("matte_paint"), "sRGB - Texture")
-        with self.assertRaisesRegex(comp.Error, "unknown color space 'nope'"):
+        with self.assertRaisesRegex(puke.Error, "unknown color space 'nope'"):
             c.resolve("nope")
-        with self.assertRaisesRegex(comp.Error, "OCIO config"):
-            comp.ColorConfig.from_file(self.path("missing.ocio"))
+        with self.assertRaisesRegex(puke.Error, "OCIO config"):
+            puke.ColorConfig.from_file(self.path("missing.ocio"))
 
     def test_png_is_srgb_by_default(self):
         # Reading an 8-bit file decodes sRGB into the working space: the same
         # as reading it raw and converting with a ColorSpace node.
-        g = comp.Graph()
+        g = puke.Graph()
         auto = g.create("Read", file=self.png)
         raw = g.create("Read", file=self.png, colorspace="Raw")
         cs = g.create("ColorSpace", **{"in": "sRGB - Texture", "out": "ACEScg"})
         g.connect(raw, cs)
-        e = comp.Engine()
+        e = puke.Engine()
         a, b = e.render(auto), e.render(cs)
         for x, y in [(0, 0), (3, 2), (15, 7)]:
             for va, vb in zip(a.pixel(x, y), b.pixel(x, y)):
@@ -363,11 +363,11 @@ class ColorTests(TempDirTest):
         self.assertAlmostEqual(e.render(raw).pixel(3, 2)[1], raw_value, places=5)
 
     def test_round_trip_through_png(self):
-        g = comp.Graph()
+        g = puke.Graph()
         read = g.create("Read", file=self.png)
         write = g.create("Write", file=self.path("rt.png"), datatype="uint8")
         g.connect(read, write)
-        e = comp.Engine()
+        e = puke.Engine()
         write.execute(e)
         back = g.create("Read", file=self.path("rt.png"))
         raw = g.create("Read", file=self.path("rt.png"), colorspace="Raw")
@@ -382,40 +382,40 @@ class OfxTests(TempDirTest):
     """Uses the test plugins in tests/ofx (ctest sets $OFX_PLUGIN_PATH)."""
 
     def test_plugin_node(self):
-        self.assertIn("ofx:org.comp.test.Gain", comp.node_types())
-        g = comp.Graph()
+        self.assertIn("ofx:org.puke.test.Gain", puke.node_types())
+        g = puke.Graph()
         read = g.create("Read", file=self.png, colorspace="Raw")
-        gain = g.create("ofx:org.comp.test.Gain", gain=2.0)
+        gain = g.create("ofx:org.puke.test.Gain", gain=2.0)
         self.assertEqual(gain.name, "Gain1")
-        self.assertEqual(gain.type, "ofx:org.comp.test.Gain")
+        self.assertEqual(gain.type, "ofx:org.puke.test.Gain")
         g.connect(read, gain)
-        e = comp.Engine(tile_size=4)
+        e = puke.Engine(tile_size=4)
         self.assertAlmostEqual(e.render(gain).pixel(3, 2)[0], 2 * 30 / 255, places=5)
         gain["mode"] = "add"
         self.assertAlmostEqual(e.render(gain).pixel(3, 2)[0], 30 / 255 + 2, places=5)
 
         gain["fail"] = True
-        with self.assertRaisesRegex(comp.Error, "gain plugin asked to fail"):
+        with self.assertRaisesRegex(puke.Error, "gain plugin asked to fail"):
             e.render(gain)
         # A generator makes the graph's project format.
         g.format = (16, 8)
-        gen = g.create("ofx:org.comp.test.Generator")
+        gen = g.create("ofx:org.puke.test.Generator")
         img = e.render(gen)
-        self.assertEqual(img.region, comp.Box(0, 0, 16, 8))
+        self.assertEqual(img.region, puke.Box(0, 0, 16, 8))
         self.assertEqual(img.pixel(0, 0)[3], 8.0)
 
 
 class ProjectTests(TempDirTest):
     def test_save_and_load(self):
-        g = comp.Graph()
+        g = puke.Graph()
         read = g.create("Read", file=self.png)
         grade = g.create("Grade", gain=(2.0, 1.0, 0.5, 1.0), multiply=2.0, gamma=1)
         g.connect(read, grade)
-        path = self.path("shot.comp")
+        path = self.path("shot.puke")
         g.save(path)
         self.assertFalse(os.path.exists(path + ".partial"))
 
-        back = comp.Graph.load(path)
+        back = puke.Graph.load(path)
         self.assertEqual([n.name for n in back.nodes], ["Read1", "Grade1"])
         self.assertEqual(back["Grade1"].params, grade.params)
         self.assertEqual(type(back["Grade1"]["gamma"]), int)  # types survive
@@ -423,38 +423,38 @@ class ProjectTests(TempDirTest):
         self.assertEqual(back.to_json(), g.to_json())
 
         # Same pixels from the loaded graph.
-        e = comp.Engine()
+        e = puke.Engine()
         a, b = e.render(grade), e.render(back["Grade1"])
         self.assertEqual(bytes(memoryview(a)), bytes(memoryview(b)))
 
     def test_frame_range_and_fps(self):
-        g = comp.Graph()
+        g = puke.Graph()
         self.assertEqual((g.frame_range, g.fps), ((1, 1), 24.0))
         g.frame_range = (1001, 1100)
         g.fps = 25
-        back = comp.Graph.from_json(g.to_json())
+        back = puke.Graph.from_json(g.to_json())
         self.assertEqual((back.frame_range, back.fps), ((1001, 1100), 25.0))
-        with self.assertRaisesRegex(comp.Error, "before the first"):
+        with self.assertRaisesRegex(puke.Error, "before the first"):
             g.frame_range = (10, 5)
         self.assertEqual(g.frame_range, (1001, 1100))
 
     def test_format(self):
         # Renders use the node's graph's project format.
-        g = comp.Graph()
+        g = puke.Graph()
         self.assertEqual(g.format, (1920, 1080))
         c = g.create("Constant", "C")
         c["color"] = (0.5, 0.5, 0.5, 1)
         g.format = (64, 32)
-        e = comp.Engine()
-        self.assertEqual(e.info(c).display_window, comp.Box(0, 0, 64, 32))
+        e = puke.Engine()
+        self.assertEqual(e.info(c).display_window, puke.Box(0, 0, 64, 32))
         img = e.render(c)
-        self.assertEqual(img.region, comp.Box(0, 0, 64, 32))
-        self.assertEqual(comp.Graph.from_json(g.to_json()).format, (64, 32))
-        with self.assertRaisesRegex(comp.Error, "the format \\(0x32\\) must be"):
+        self.assertEqual(img.region, puke.Box(0, 0, 64, 32))
+        self.assertEqual(puke.Graph.from_json(g.to_json()).format, (64, 32))
+        with self.assertRaisesRegex(puke.Error, "the format \\(0x32\\) must be"):
             g.format = (0, 32)
 
     def test_animation(self):
-        g = comp.Graph()
+        g = puke.Graph()
         n = g.create("Grade", "G")
         n["multiply"] = 2.0
         self.assertFalse(n.animated("multiply"))
@@ -463,20 +463,20 @@ class ProjectTests(TempDirTest):
         self.assertTrue(n.animated("multiply") and "multiply" in n)
         self.assertEqual(n.keys("multiply"), [(1.0, 1.0, "linear"), (11.0, 3.0, "smooth")])
         self.assertAlmostEqual(n.value_at("multiply", 6), 2.0)
-        with self.assertRaisesRegex(comp.Error, "'multiply' is animated; read it with value_at"):
+        with self.assertRaisesRegex(puke.Error, "'multiply' is animated; read it with value_at"):
             n["multiply"]
-        with self.assertRaisesRegex(comp.Error, "is animated"):
+        with self.assertRaisesRegex(puke.Error, "is animated"):
             n.get("multiply")
-        with self.assertRaisesRegex(comp.Error, "unknown interpolation 'cubic'"):
+        with self.assertRaisesRegex(puke.Error, "unknown interpolation 'cubic'"):
             n.set_key("multiply", 5, 1.0, "cubic")
         # Tangents.
         self.assertIsNone(n.slope("multiply", 11))
         n.set_slope("multiply", 11, 0.5)
         self.assertEqual(n.slope("multiply", 11), 0.5)
-        with self.assertRaisesRegex(comp.Error, "a slope needs 1 number"):
+        with self.assertRaisesRegex(puke.Error, "a slope needs 1 number"):
             n.set_slope("multiply", 11, (1, 2))
         # Saved and loaded.
-        back = comp.Graph.from_json(g.to_json())
+        back = puke.Graph.from_json(g.to_json())
         self.assertEqual(back["G"].slope("multiply", 11), 0.5)
         self.assertEqual(back["G"].keys("multiply"), n.keys("multiply"))
         # Removing keys; the last one gone leaves it unset.
@@ -494,24 +494,24 @@ class ProjectTests(TempDirTest):
         self.assertEqual(n.keys("gamma"), [])
 
     def test_proxy(self):
-        g = comp.Graph()
+        g = puke.Graph()
         g.format = (64, 32)
         c = g.create("Constant", "C")
-        e = comp.Engine()
-        self.assertEqual(e.info(c, scale=0.5).display_window, comp.Box(0, 0, 32, 16))
-        self.assertEqual(e.render(c, scale=0.25).region, comp.Box(0, 0, 16, 8))
-        with self.assertRaisesRegex(comp.Error, "render scale must be more than 0"):
+        e = puke.Engine()
+        self.assertEqual(e.info(c, scale=0.5).display_window, puke.Box(0, 0, 32, 16))
+        self.assertEqual(e.render(c, scale=0.25).region, puke.Box(0, 0, 16, 8))
+        with self.assertRaisesRegex(puke.Error, "render scale must be more than 0"):
             e.render(c, scale=0)
 
     def test_json_text(self):
-        g = comp.Graph.from_json('{"format": "comp", "version": 1, "nodes": ['
+        g = puke.Graph.from_json('{"format": "puke", "version": 1, "nodes": ['
                                  '{"name": "G", "type": "Grade", "params": {"mix": 0.5}}]}')
         self.assertEqual(g["G"]["mix"], 0.5)
         self.assertIn('"mix": 0.5', g.to_json())
-        with self.assertRaisesRegex(comp.Error, "unknown node type 'Defocus'"):
-            comp.Graph.from_json('{"format": "comp", "version": 1, "nodes": [{"name": "B", "type": "Defocus"}]}')
-        with self.assertRaisesRegex(comp.Error, "cannot open project"):
-            comp.Graph.load(self.path("missing.comp"))
+        with self.assertRaisesRegex(puke.Error, "unknown node type 'Defocus'"):
+            puke.Graph.from_json('{"format": "puke", "version": 1, "nodes": [{"name": "B", "type": "Defocus"}]}')
+        with self.assertRaisesRegex(puke.Error, "cannot open project"):
+            puke.Graph.load(self.path("missing.puke"))
 
 
 if __name__ == "__main__":

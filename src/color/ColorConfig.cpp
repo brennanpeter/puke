@@ -1,4 +1,4 @@
-#include "comp/color/ColorConfig.h"
+#include "puke/color/ColorConfig.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -9,16 +9,16 @@
 
 #include <OpenColorIO/OpenColorIO.h>
 
-#include "comp/core/Hash.h"
-#include "comp/graph/Node.h"  // Error
+#include "puke/core/Hash.h"
+#include "puke/graph/Node.h"  // Error
 
-namespace comp {
+namespace puke {
 
 namespace OCIO = OCIO_NAMESPACE;
 
 namespace {
 
-// comp's built-in config, used when $OCIO isn't set. Kept small: the spaces
+// puke's built-in config, used when $OCIO isn't set. Kept small: the spaces
 // a compositor needs day to day, built from OCIO's own built-in transforms
 // (so no LUT files), with names matching the ACES studio configs so projects
 // carry over to a studio config.
@@ -38,8 +38,8 @@ namespace {
 constexpr const char* kBuiltinConfig = R"yaml(
 ocio_profile_version: 2.1
 
-name: comp-builtin
-description: comp's built-in color config, used when $OCIO is not set.
+name: puke-builtin
+description: puke's built-in color config, used when $OCIO is not set.
 environment: {}
 search_path: ""
 strictparsing: true
@@ -386,4 +386,4 @@ void ColorConfig::convert(Image& image, const std::string& from, const std::stri
     applyCpu(*conversion.cpu, image, region, "cannot convert from '" + from + "' to '" + to + "'", true);
 }
 
-}  // namespace comp
+}  // namespace puke

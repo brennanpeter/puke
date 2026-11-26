@@ -1,6 +1,6 @@
-// comp_gui: the comp desktop application.
+// puke_gui: the puke desktop application.
 //
-//   comp_gui [project.comp]
+//   puke_gui [project.puke]
 
 #include <QApplication>
 
@@ -8,11 +8,11 @@
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
-    QApplication::setApplicationName("comp");
+    QApplication::setApplicationName("puke");
 
-    compgui::applyTheme();
+    pukegui::applyTheme();
 
-    compgui::MainWindow window;
+    pukegui::MainWindow window;
     window.show();
     const QStringList args = QApplication::arguments();
     if (args.size() > 1) window.openProject(args[1]);

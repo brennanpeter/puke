@@ -5,13 +5,13 @@
 #include <string>
 
 #include "TestUtil.h"
-#include "comp/core/Path.h"
-#include "comp/engine/Engine.h"
-#include "comp/graph/Graph.h"
-#include "comp/nodes/Registry.h"
-#include "comp/nodes/RotoNode.h"
+#include "puke/core/Path.h"
+#include "puke/engine/Engine.h"
+#include "puke/graph/Graph.h"
+#include "puke/nodes/Registry.h"
+#include "puke/nodes/RotoNode.h"
 
-using namespace comp;
+using namespace puke;
 using test::SourceNode;
 
 namespace {

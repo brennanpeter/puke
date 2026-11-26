@@ -11,16 +11,16 @@
 #include <thread>
 #include <vector>
 
-#include "comp/core/Format.h"
+#include "puke/core/Format.h"
 
-namespace comp {
+namespace puke {
 class Snapshot;
 class WriteNode;
-}  // namespace comp
+}  // namespace puke
 
-namespace compgui {
+namespace pukegui {
 
-// Runs Write nodes over a frame range on its own thread, like comp_render:
+// Runs Write nodes over a frame range on its own thread, like puke_render:
 // every Write for each frame in turn, a failure doesn't stop the rest.
 //
 // What gets written is the graph as it was when the job was made (each Write
@@ -32,9 +32,9 @@ namespace compgui {
 class RenderJob : public QObject {
     Q_OBJECT
 public:
-    // Snapshots the Writes here, on the editing thread. Throws comp::Error if
+    // Snapshots the Writes here, on the editing thread. Throws puke::Error if
     // one can't be rendered (e.g. an unconnected input) or last < first.
-    RenderJob(const std::vector<comp::WriteNode*>& writes, int first, int last, const comp::Format& format,
+    RenderJob(const std::vector<puke::WriteNode*>& writes, int first, int last, const puke::Format& format,
               QObject* parent = nullptr);
     ~RenderJob() override;
 
@@ -52,8 +52,8 @@ signals:
 private:
     struct Task {
         std::string name;
-        const comp::WriteNode* write;
-        std::shared_ptr<const comp::Snapshot> snapshot;
+        const puke::WriteNode* write;
+        std::shared_ptr<const puke::Snapshot> snapshot;
     };
     struct Event {
         int done = 0;
@@ -69,7 +69,7 @@ private:
 
     std::vector<Task> tasks_;
     int first_, last_, total_;
-    comp::Format format_;
+    puke::Format format_;
     int failures_ = 0;
     bool running_ = false;
     std::atomic<bool> cancel_{false};
@@ -80,4 +80,4 @@ private:
     std::thread thread_;
 };
 
-}  // namespace compgui
+}  // namespace pukegui

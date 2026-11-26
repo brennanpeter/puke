@@ -8,12 +8,12 @@
 #include <vector>
 
 #include "OfxInternal.h"
-#include "comp/ofx/Overlay.h"
+#include "puke/ofx/Overlay.h"
 
-namespace comp::ofx {
+namespace puke::ofx {
 
-// A comp node running one instance of an OFX image effect. Created through
-// comp::ofx::createNode() (or the registry, as "ofx:<identifier>").
+// A puke node running one instance of an OFX image effect. Created through
+// puke::ofx::createNode() (or the registry, as "ofx:<identifier>").
 //
 // How each Node hook maps onto OFX:
 //   computeInfo  -> kOfxImageEffectActionGetRegionOfDefinition
@@ -23,7 +23,7 @@ namespace comp::ofx {
 //
 // Images are float RGBA (or Alpha, for clips that only take alpha), copied
 // into OFX's bottom-up row order and back. y is flipped around the input's
-// display window: OFX y = flipY - comp y, flipY = display y0 + y1.
+// display window: OFX y = flipY - puke y, flipY = display y0 + y1.
 class OfxNode : public Node {
 public:
     OfxNode(std::string name, Plugin& plugin);
@@ -62,10 +62,10 @@ private:
         std::vector<ImageInfo> inputs;
         std::vector<bool> connected;
         ImageInfo output;
-        int flipY = 0;           // pixel coordinates (at the render scale): OFX y = flipY - comp y
+        int flipY = 0;           // pixel coordinates (at the render scale): OFX y = flipY - puke y
         double scale = 1;        // the render scale
         int flipCanonical = 0;   // canonical (full-size) coordinates' flip
-        // comp pixels <-> OFX canonical coordinates.
+        // puke pixels <-> OFX canonical coordinates.
         OfxRectI toCanonical(const Box& pixels) const;
         Box fromCanonical(const OfxRectD& canonical) const;
     };
@@ -76,7 +76,7 @@ private:
     Plugin& plugin_;
     std::string typeName_;
     std::unique_ptr<Effect> instance_;
-    std::vector<Clip*> inputClips_;  // comp input i feeds inputClips_[i]
+    std::vector<Clip*> inputClips_;  // puke input i feeds inputClips_[i]
     Clip* outputClip_ = nullptr;
 
     mutable std::mutex actionMutex_;  // instance-safe plugins: one action at a time
@@ -90,4 +90,4 @@ private:
     mutable std::map<std::string, ParamValue> pluginValues_;  // values the plugin set itself
 };
 
-}  // namespace comp::ofx
+}  // namespace puke::ofx

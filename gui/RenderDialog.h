@@ -11,7 +11,7 @@ class QProgressBar;
 class QPushButton;
 class QSpinBox;
 
-namespace compgui {
+namespace pukegui {
 
 class Document;
 class RenderJob;
@@ -55,4 +55,4 @@ private:
     std::unique_ptr<RenderJob> job_;
 };
 
-}  // namespace compgui
+}  // namespace pukegui

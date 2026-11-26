@@ -1,9 +1,9 @@
 #include <cmath>
 #include <vector>
 
-#include "comp/core/Image.h"
+#include "puke/core/Image.h"
 
-namespace comp {
+namespace puke {
 
 namespace {
 
@@ -56,4 +56,4 @@ Image downscale(const Image& src, const Box& region, double scale) {
     return out;
 }
 
-}  // namespace comp
+}  // namespace puke

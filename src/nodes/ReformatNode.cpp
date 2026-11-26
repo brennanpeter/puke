@@ -1,4 +1,4 @@
-#include "comp/nodes/ReformatNode.h"
+#include "puke/nodes/ReformatNode.h"
 
 #include <algorithm>
 #include <cmath>
@@ -6,7 +6,7 @@
 #include "Resample.h"
 #include "Specs.h"
 
-namespace comp {
+namespace puke {
 
 std::vector<ParamSpec> ReformatNode::paramSpecs() const {
     using namespace specs;
@@ -71,4 +71,4 @@ Image ReformatNode::compute(const RenderContext& ctx, const Box& region, std::sp
                            resample::parseFilter(*this));
 }
 
-}  // namespace comp
+}  // namespace puke

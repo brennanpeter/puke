@@ -1,19 +1,19 @@
-// OFX plugins for testing comp's host, written against the plain C API like
-// any third-party plugin. Built into tests' ofx/compTestPlugins.ofx.bundle.
+// OFX plugins for testing puke's host, written against the plain C API like
+// any third-party plugin. Built into tests' ofx/pukeTestPlugins.ofx.bundle.
 //
-//   org.comp.test.Gain          Filter. Every parameter type; posts an error
+//   org.puke.test.Gain          Filter. Every parameter type; posts an error
 //                               when asked to fail. Fully thread safe, tiles.
-//   org.comp.test.Shift         Filter. Moves the image by whole pixels (OFX
+//   org.puke.test.Shift         Filter. Moves the image by whole pixels (OFX
 //                               coordinates, y up): region of definition and
 //                               regions of interest. Instance safe.
-//   org.comp.test.MaskMultiply  General. Source times an optional alpha-only
+//   org.puke.test.MaskMultiply  General. Source times an optional alpha-only
 //                               Mask. Declares itself thread unsafe, no tiles,
 //                               and fails if two renders ever overlap.
-//   org.comp.test.Coords        Filter. Writes each pixel's OFX coordinates
+//   org.puke.test.Coords        Filter. Writes each pixel's OFX coordinates
 //                               and the project offset, pinning down how
-//                               comp maps its y-down pixels onto OFX's y-up.
-//   org.comp.test.Generator     General with no inputs: comp should refuse it.
-//   org.comp.test.ByteOnly      8-bit only: comp should refuse it.
+//                               puke maps its y-down pixels onto OFX's y-up.
+//   org.puke.test.Generator     General with no inputs: puke should refuse it.
+//   org.puke.test.ByteOnly      8-bit only: puke should refuse it.
 
 #include <atomic>
 #include <chrono>
@@ -30,7 +30,7 @@
 #include "ofxParam.h"
 #include "ofxProperty.h"
 
-#ifdef COMP_TEST_GL
+#ifdef PUKE_TEST_GL
 #include <GL/gl.h>
 #endif
 
@@ -378,7 +378,7 @@ OfxStatus coordsMain(const char* action, const void* handle, OfxPropertySetHandl
 // ================================================================ Generator
 // No inputs. Each pixel: (red of the color param, OFX x, OFX y, project
 // height), so tests can check the coordinates and the project size. Offers
-// General too, to check comp picks Generator.
+// General too, to check puke picks Generator.
 
 OfxStatus generatorMain(const char* action, const void* handle, OfxPropertySetHandle in, OfxPropertySetHandle) {
     auto e = static_cast<OfxImageEffectHandle>(const_cast<void*>(handle));
@@ -449,7 +449,7 @@ OfxStatus pointOverlayMain(const char* action, const void* handle, OfxPropertySe
     gParam->paramGetValue(param(e, "point"), &px, &py);
 
     if (!std::strcmp(action, kOfxInteractActionDraw)) {
-#ifdef COMP_TEST_GL
+#ifdef PUKE_TEST_GL
         const double r = 10 * scale[0];
         glColor3f(1, 0, 0);
         glLineWidth(1);
@@ -526,7 +526,7 @@ OfxStatus pointMain(const char* action, const void* handle, OfxPropertySetHandle
     return kOfxStatReplyDefault;
 }
 
-// ================================================================ ones comp should refuse
+// ================================================================ ones puke should refuse
 
 OfxStatus transitionMain(const char* action, const void* handle, OfxPropertySetHandle, OfxPropertySetHandle) {
     auto e = static_cast<OfxImageEffectHandle>(const_cast<void*>(handle));
@@ -549,14 +549,14 @@ OfxStatus byteOnlyMain(const char* action, const void* handle, OfxPropertySetHan
 }
 
 OfxPlugin plugins[] = {
-    {kOfxImageEffectPluginApi, 1, "org.comp.test.Gain", 1, 0, setHost, gainMain},
-    {kOfxImageEffectPluginApi, 1, "org.comp.test.Shift", 1, 2, setHost, shiftMain},
-    {kOfxImageEffectPluginApi, 1, "org.comp.test.MaskMultiply", 1, 0, setHost, maskMain},
-    {kOfxImageEffectPluginApi, 1, "org.comp.test.Coords", 1, 0, setHost, coordsMain},
-    {kOfxImageEffectPluginApi, 1, "org.comp.test.Generator", 1, 0, setHost, generatorMain},
-    {kOfxImageEffectPluginApi, 1, "org.comp.test.ByteOnly", 1, 0, setHost, byteOnlyMain},
-    {kOfxImageEffectPluginApi, 1, "org.comp.test.Transition", 1, 0, setHost, transitionMain},
-    {kOfxImageEffectPluginApi, 1, "org.comp.test.Point", 1, 0, setHost, pointMain},
+    {kOfxImageEffectPluginApi, 1, "org.puke.test.Gain", 1, 0, setHost, gainMain},
+    {kOfxImageEffectPluginApi, 1, "org.puke.test.Shift", 1, 2, setHost, shiftMain},
+    {kOfxImageEffectPluginApi, 1, "org.puke.test.MaskMultiply", 1, 0, setHost, maskMain},
+    {kOfxImageEffectPluginApi, 1, "org.puke.test.Coords", 1, 0, setHost, coordsMain},
+    {kOfxImageEffectPluginApi, 1, "org.puke.test.Generator", 1, 0, setHost, generatorMain},
+    {kOfxImageEffectPluginApi, 1, "org.puke.test.ByteOnly", 1, 0, setHost, byteOnlyMain},
+    {kOfxImageEffectPluginApi, 1, "org.puke.test.Transition", 1, 0, setHost, transitionMain},
+    {kOfxImageEffectPluginApi, 1, "org.puke.test.Point", 1, 0, setHost, pointMain},
 };
 
 }  // namespace

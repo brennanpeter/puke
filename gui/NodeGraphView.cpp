@@ -19,10 +19,10 @@
 #include <map>
 
 #include "Document.h"
-#include "comp/nodes/Registry.h"
-#include "comp/project/Project.h"
+#include "puke/nodes/Registry.h"
+#include "puke/project/Project.h"
 
-namespace compgui {
+namespace pukegui {
 
 namespace {
 
@@ -51,7 +51,7 @@ QString displayType(const std::string& type) {
 // top-left corner, and moving it moves the nodes on it).
 class NodeItem : public QGraphicsItem {
 public:
-    NodeItem(comp::Node& node, Document& doc)
+    NodeItem(puke::Node& node, Document& doc)
         : node_(node), doc_(doc), backdrop_(std::string(node.typeName()) == "Backdrop") {
         setFlags(ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges);
         setZValue(backdrop_ ? -1 : 1);
@@ -60,12 +60,12 @@ public:
         setToolTip(QString::fromStdString(node.typeName()));
     }
 
-    comp::Node& node() const { return node_; }
+    puke::Node& node() const { return node_; }
     bool isBackdrop() const { return backdrop_; }
 
     QSizeF backdropSize() const {
         if (resizing_) return *resizing_;
-        const comp::Vec2 s = node_.vec2Param("size", comp::Vec2{400, 250});
+        const puke::Vec2 s = node_.vec2Param("size", puke::Vec2{400, 250});
         return {std::max(40.0, s[0]), std::max(40.0, s[1])};
     }
     // The backdrop's size or label changed.
@@ -193,7 +193,7 @@ protected:
             const QSizeF s = *resizing_;
             resizing_.reset();
             prepareGeometryChange();
-            doc_.setParam(node_, "size", comp::Vec2{std::round(s.width()), std::round(s.height())});
+            doc_.setParam(node_, "size", puke::Vec2{std::round(s.width()), std::round(s.height())});
             return;
         }
         QGraphicsItem::mouseReleaseEvent(e);
@@ -205,7 +205,7 @@ private:
 
     void paintBackdrop(QPainter* p) {
         const QRectF r(QPointF(), backdropSize());
-        const comp::Color c = node_.colorParam("color", 0.3);
+        const puke::Color c = node_.colorParam("color", 0.3);
         auto ch = [](double v) { return std::clamp(static_cast<int>(v * 255 + 0.5), 0, 255); };
         const QColor fill(ch(c[0]), ch(c[1]), ch(c[2]));
         p->setPen(isSelected() ? QPen(QColor(255, 200, 80), 2) : QPen(fill.darker(160), 1));
@@ -228,7 +228,7 @@ private:
             p->drawLine(QPointF(r.right() - 4 * i, r.bottom() - 2), QPointF(r.right() - 2, r.bottom() - 4 * i));
     }
 
-    comp::Node& node_;
+    puke::Node& node_;
     Document& doc_;
     bool backdrop_;
     std::vector<NodeItem*> carried_;
@@ -277,7 +277,7 @@ public:
         layout->addWidget(edit_);
         layout->addWidget(list_);
         resize(260, 300);
-        for (const auto& t : comp::nodeTypes()) {
+        for (const auto& t : puke::nodeTypes()) {
             auto* item = new QListWidgetItem(displayType(t), list_);
             item->setData(Qt::UserRole, QString::fromStdString(t));
             item->setToolTip(QString::fromStdString(t));
@@ -351,13 +351,13 @@ NodeGraphView::NodeGraphView(Document& doc, QWidget* parent) : QGraphicsView(par
     connect(&doc_, &Document::structureChanged, this, &NodeGraphView::rebuild);
     connect(&doc_, &Document::selectionChanged, this, &NodeGraphView::syncSelectionFromDoc);
     connect(&doc_, &Document::viewedChanged, this, [this] { scene_.update(); });
-    connect(&doc_, &Document::nodeMoved, this, [this](comp::Node* n) {  // e.g. undo
+    connect(&doc_, &Document::nodeMoved, this, [this](puke::Node* n) {  // e.g. undo
         auto it = items_.find(n);
         if (it == items_.end() || !n->position()) return;
         const QPointF p((*n->position())[0], (*n->position())[1]);
         if (it->second->pos() != p) it->second->setPos(p);
     });
-    connect(&doc_, &Document::paramChanged, this, [this](comp::Node* n) {
+    connect(&doc_, &Document::paramChanged, this, [this](puke::Node* n) {
         auto it = items_.find(n);
         if (it != items_.end() && it->second->isBackdrop()) it->second->paramsChanged();
     });
@@ -383,20 +383,20 @@ NodeGraphView::~NodeGraphView() {
 void NodeGraphView::layoutUnplaced() {
     // Nodes without a position (e.g. from a script) get one by depth: inputs
     // above the nodes that use them.
-    std::map<const comp::Node*, int> depth;
-    std::function<int(const comp::Node*)> depthOf = [&](const comp::Node* n) -> int {
+    std::map<const puke::Node*, int> depth;
+    std::function<int(const puke::Node*)> depthOf = [&](const puke::Node* n) -> int {
         if (auto it = depth.find(n); it != depth.end()) return it->second;
         depth[n] = 0;  // guards against cycles while we look
         int d = 0;
         for (int i = 0; i < n->maxInputs(); ++i)
-            if (const comp::Node* in = n->input(i)) d = std::max(d, depthOf(in) + 1);
+            if (const puke::Node* in = n->input(i)) d = std::max(d, depthOf(in) + 1);
         return depth[n] = d;
     };
     std::map<int, int> perRow;
     for (const auto& n : doc_.graph().nodes()) {
         if (n->position()) continue;
         const int d = depthOf(n.get());
-        n->setPosition(comp::Vec2{perRow[d]++ * 160.0, d * 90.0});  // placement only: not an edit
+        n->setPosition(puke::Vec2{perRow[d]++ * 160.0, d * 90.0});  // placement only: not an edit
     }
 }
 
@@ -418,7 +418,7 @@ void NodeGraphView::rebuild() {
     }
     for (const auto& n : doc_.graph().nodes())
         for (int i = 0; i < n->maxInputs(); ++i)
-            if (const comp::Node* in = n->input(i)) {
+            if (const puke::Node* in = n->input(i)) {
                 auto* e = new EdgeItem(items_.at(in), items_.at(n.get()), i);
                 scene_.addItem(e);
                 edges_.push_back(e);
@@ -458,11 +458,11 @@ void NodeGraphView::createAt(const std::string& type, QPointF scenePos) {
         return;
     }
     try {
-        comp::Node* upstream = doc_.selected();
+        puke::Node* upstream = doc_.selected();
         QPointF pos = scenePos;
         if (upstream && upstream->position()) pos = QPointF((*upstream->position())[0], (*upstream->position())[1] + 90);
         doc_.createNode(type, pos, upstream);
-    } catch (const comp::Error& e) {
+    } catch (const puke::Error& e) {
         QMessageBox::warning(this, "Create node", QString::fromStdString(e.what()));
     }
 }
@@ -470,17 +470,17 @@ void NodeGraphView::createAt(const std::string& type, QPointF scenePos) {
 void NodeGraphView::createBackdrop(QPointF scenePos) {
     // Around the selected nodes, or an empty one at the cursor.
     QRectF around;
-    for (comp::Node* n : selectedNodes()) around |= items_.at(n)->sceneBoundingRect();
+    for (puke::Node* n : selectedNodes()) around |= items_.at(n)->sceneBoundingRect();
     doc_.beginEdit("Create Backdrop");
     try {
         if (around.isEmpty()) {
             doc_.createNode("Backdrop", scenePos);
         } else {
             around.adjust(-30, -50, 30, 30);  // room for the title
-            comp::Node& b = doc_.createNode("Backdrop", around.topLeft());
-            doc_.setParam(b, "size", comp::Vec2{std::round(around.width()), std::round(around.height())});
+            puke::Node& b = doc_.createNode("Backdrop", around.topLeft());
+            doc_.setParam(b, "size", puke::Vec2{std::round(around.width()), std::round(around.height())});
         }
-    } catch (const comp::Error& e) {
+    } catch (const puke::Error& e) {
         QMessageBox::warning(this, "Create node", QString::fromStdString(e.what()));
     }
     doc_.endEdit();
@@ -510,13 +510,13 @@ void NodeGraphView::paste() {
     const QPoint cursor = mapFromGlobal(QCursor::pos());
     std::optional<QPointF> corner;  // the pasted nodes' top-left
     try {
-        const comp::Graph nodes = comp::projectFromJson(text, "clipboard");
+        const puke::Graph nodes = puke::projectFromJson(text, "clipboard");
         for (const auto& n : nodes.nodes())
             if (const auto& p = n->position()) {
                 const QPointF q((*p)[0], (*p)[1]);
                 corner = corner ? QPointF(std::min(corner->x(), q.x()), std::min(corner->y(), q.y())) : q;
             }
-    } catch (const comp::Error&) {
+    } catch (const puke::Error&) {
         return;  // not nodes: nothing to paste
     }
     if (corner && rect().contains(cursor)) offset = mapToScene(cursor) - *corner;
@@ -529,27 +529,27 @@ void NodeGraphView::duplicateSelection() {
 }
 
 void NodeGraphView::pasteText(const std::string& text, QPointF offset) {
-    std::vector<comp::Node*> pasted;
+    std::vector<puke::Node*> pasted;
     try {
         pasted = doc_.pasteNodes(text, offset);
-    } catch (const comp::Error& e) {
+    } catch (const puke::Error& e) {
         QMessageBox::warning(this, "Paste", QString::fromStdString(e.what()));
         return;
     }
     selectNodes(pasted);  // so it can be moved straight away
 }
 
-void NodeGraphView::selectNodes(const std::vector<comp::Node*>& nodes) {
+void NodeGraphView::selectNodes(const std::vector<puke::Node*>& nodes) {
     syncing_ = true;
     scene_.clearSelection();
-    for (comp::Node* n : nodes) items_.at(n)->setSelected(true);
+    for (puke::Node* n : nodes) items_.at(n)->setSelected(true);
     syncing_ = false;
     doc_.setSelected(nodes.empty() ? nullptr : nodes.back());  // keeps the others (see syncSelectionFromDoc)
     scene_.update();
 }
 
 void NodeGraphView::renameSelected() {
-    comp::Node* node = doc_.selected();
+    puke::Node* node = doc_.selected();
     if (!node) return;
     bool ok = false;
     const QString name = QInputDialog::getText(this, "Rename", "Name:", QLineEdit::Normal,
@@ -557,7 +557,7 @@ void NodeGraphView::renameSelected() {
     if (!ok) return;
     try {
         doc_.renameNode(*node, name.trimmed().toStdString());
-    } catch (const comp::Error& e) {
+    } catch (const puke::Error& e) {
         QMessageBox::warning(this, "Rename", QString::fromStdString(e.what()));
     }
 }
@@ -606,10 +606,10 @@ void NodeGraphView::mousePressEvent(QMouseEvent* event) {
             auto port = item->portAt(sp);
             if (!port) continue;
             Drag d;
-            comp::Node& n = item->node();
+            puke::Node& n = item->node();
             if (port->first) {
                 d.source = &n;  // from an output: a new connection
-            } else if (comp::Node* src = n.input(port->second)) {
+            } else if (puke::Node* src = n.input(port->second)) {
                 d.source = src;  // from a connected input: pick the wire up
                 d.detachedFrom = &n;
                 d.detachedInput = port->second;
@@ -655,7 +655,7 @@ void NodeGraphView::mouseReleaseEvent(QMouseEvent* event) {
         drag_.reset();
         delete d.wire;
         const QPointF sp = mapToScene(event->pos());
-        std::optional<std::pair<comp::Node*, int>> target;
+        std::optional<std::pair<puke::Node*, int>> target;
         for (auto& [node, item] : items_) {
             auto port = item->portAt(sp);
             if (port && !port->first) target = std::make_pair(&item->node(), port->second);
@@ -679,7 +679,7 @@ void NodeGraphView::mouseReleaseEvent(QMouseEvent* event) {
             } else if (!target && d.detachedFrom) {
                 doc_.disconnect(*d.detachedFrom, d.detachedInput);  // dropped on nothing: unplug
             }
-        } catch (const comp::Error& e) {
+        } catch (const puke::Error& e) {
             QMessageBox::warning(this, "Connect", QString::fromStdString(e.what()));
             rebuild();
         }
@@ -687,7 +687,7 @@ void NodeGraphView::mouseReleaseEvent(QMouseEvent* event) {
     }
     QGraphicsView::mouseReleaseEvent(event);
     // Nodes dragged: record where they ended up, as one undo step.
-    std::vector<std::pair<comp::Node*, QPointF>> moves;
+    std::vector<std::pair<puke::Node*, QPointF>> moves;
     for (auto& [node, item] : items_) {
         const auto& p = item->node().position();
         if (!p || QPointF((*p)[0], (*p)[1]) != item->pos()) moves.push_back({&item->node(), item->pos()});
@@ -695,8 +695,8 @@ void NodeGraphView::mouseReleaseEvent(QMouseEvent* event) {
     if (!moves.empty()) doc_.moveNodes(moves);
 }
 
-std::vector<comp::Node*> NodeGraphView::selectedNodes() const {
-    std::vector<comp::Node*> out;
+std::vector<puke::Node*> NodeGraphView::selectedNodes() const {
+    std::vector<puke::Node*> out;
     for (auto* it : scene_.selectedItems())
         if (auto* n = dynamic_cast<NodeItem*>(it)) out.push_back(&n->node());
     return out;
@@ -719,4 +719,4 @@ void NodeGraphView::wheelEvent(QWheelEvent* event) {
 
 void NodeGraphView::contextMenuEvent(QContextMenuEvent*) { showCreatePopup(); }
 
-}  // namespace compgui
+}  // namespace pukegui

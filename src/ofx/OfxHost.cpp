@@ -1,8 +1,8 @@
-// comp's OpenFX host: property sets, the suites plugins call, and finding,
+// puke's OpenFX host: property sets, the suites plugins call, and finding,
 // loading and describing plugins. How a plugin runs inside the engine is in
 // OfxNode.cpp.
 
-#include "comp/ofx/OfxHost.h"
+#include "puke/ofx/OfxHost.h"
 
 #include <algorithm>
 #include <cmath>
@@ -28,7 +28,7 @@
 #include "ofxParametricParam.h"
 #include "OfxNode.h"
 
-namespace comp::ofx {
+namespace puke::ofx {
 
 namespace fs = std::filesystem;
 
@@ -645,7 +645,7 @@ const OfxMemorySuiteV1 memorySuite{memoryAlloc, memoryFree};
 
 // ================================================================ multi-thread suite
 //
-// comp already renders tiles on all cores, so a plugin's own threading
+// puke already renders tiles on all cores, so a plugin's own threading
 // would only compete with that. We report one CPU, and run any threads a
 // plugin asks for one after another on the calling thread.
 
@@ -771,8 +771,8 @@ OfxHost* host() {
     static const bool filled = [] {
         PropertySet& p = props;
         p.setString(kOfxPropType, 0, kOfxTypeImageEffectHost);
-        p.setString(kOfxPropName, 0, "org.comp.host");
-        p.setString(kOfxPropLabel, 0, "comp");
+        p.setString(kOfxPropName, 0, "org.puke.host");
+        p.setString(kOfxPropLabel, 0, "puke");
         p.setInts(kOfxPropAPIVersion, {1, 4});
         p.setInts(kOfxPropVersion, {0, 1, 0});
         p.setString(kOfxPropVersionLabel, 0, "0.1.0");
@@ -965,7 +965,7 @@ OfxStatus Plugin::call(const char* action, const void* handle, PropertySet* inAr
     std::string what;
     switch (status) {
         case kOfxStatFailed: what = "failed"; break;
-        case kOfxStatErrMissingHostFeature: what = "needs a host feature comp doesn't support yet"; break;
+        case kOfxStatErrMissingHostFeature: what = "needs a host feature puke doesn't support yet"; break;
         case kOfxStatErrUnsupported: what = "is unsupported"; break;
         case kOfxStatErrMemory: what = "ran out of memory"; break;
         case kOfxStatErrImageFormat: what = "doesn't support this image format"; break;
@@ -1021,11 +1021,11 @@ void Plugin::describe() {
         else {
             std::string list;
             for (const auto& c : contexts) list += (list.empty() ? "" : ", ") + c;
-            throw Error(who + " has no context comp can host yet (Filter, Generator or General); it offers: " +
+            throw Error(who + " has no context puke can host yet (Filter, Generator or General); it offers: " +
                         (list.empty() ? "none" : list));
         }
         if (!has(d.getStrings(kOfxImageEffectPropSupportedPixelDepths), kOfxBitDepthFloat))
-            throw Error(who + " doesn't support float images, the only kind comp uses");
+            throw Error(who + " doesn't support float images, the only kind puke uses");
 
         contextDescriptor = std::make_unique<Effect>();
         Effect& cd = *contextDescriptor;
@@ -1071,4 +1071,4 @@ std::unique_ptr<Node> createNode(const std::string& identifier, const std::strin
     return std::make_unique<OfxNode>(name, *plugin);
 }
 
-}  // namespace comp::ofx
+}  // namespace puke::ofx

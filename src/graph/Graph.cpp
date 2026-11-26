@@ -1,9 +1,9 @@
-#include "comp/graph/Graph.h"
+#include "puke/graph/Graph.h"
 
 #include <algorithm>
 #include <unordered_set>
 
-namespace comp {
+namespace puke {
 namespace {
 
 // True if `target` is `start` or anywhere upstream of it.
@@ -121,4 +121,4 @@ void Graph::setSettings(const ProjectSettings& settings) {
     settings_ = settings;
 }
 
-}  // namespace comp
+}  // namespace puke

@@ -13,7 +13,7 @@
 
 #include "Document.h"
 
-namespace compgui {
+namespace pukegui {
 
 namespace {
 
@@ -34,7 +34,7 @@ constexpr int kCustom = static_cast<int>(std::size(kPresets));
 ProjectSettingsDialog::ProjectSettingsDialog(Document& doc, QWidget* parent) : QDialog(parent), doc_(doc) {
     setObjectName("projectSettings");
     setWindowTitle("Project Settings");
-    const comp::ProjectSettings& s = doc_.settings();
+    const puke::ProjectSettings& s = doc_.settings();
 
     preset_ = new QComboBox;
     preset_->setObjectName("settingsPreset");
@@ -105,14 +105,14 @@ void ProjectSettingsDialog::sizeEdited() {
 }
 
 bool ProjectSettingsDialog::apply() {
-    comp::ProjectSettings s = doc_.settings();
+    puke::ProjectSettings s = doc_.settings();
     s.format = {width_->value(), height_->value()};
     s.firstFrame = first_->value();
     s.lastFrame = last_->value();
     s.fps = fps_->value();
     try {
         doc_.setSettings(s);
-    } catch (const comp::Error& e) {
+    } catch (const puke::Error& e) {
         QMessageBox::warning(this, "Project Settings", QString::fromStdString(e.what()));
         return false;
     }
@@ -123,4 +123,4 @@ void ProjectSettingsDialog::accept() {
     if (apply()) QDialog::accept();
 }
 
-}  // namespace compgui
+}  // namespace pukegui

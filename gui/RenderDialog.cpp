@@ -14,9 +14,9 @@
 
 #include "Document.h"
 #include "RenderJob.h"
-#include "comp/nodes/WriteNode.h"
+#include "puke/nodes/WriteNode.h"
 
-namespace compgui {
+namespace pukegui {
 
 RenderDialog::RenderDialog(Document& doc, QWidget* parent) : QDialog(parent), doc_(doc) {
     setObjectName("renderDialog");
@@ -78,9 +78,9 @@ bool RenderDialog::rendering() const { return job_ && job_->running(); }
 
 void RenderDialog::reset() {
     writes_->clear();
-    auto* selected = dynamic_cast<comp::WriteNode*>(doc_.selected());
+    auto* selected = dynamic_cast<puke::WriteNode*>(doc_.selected());
     for (const auto& n : doc_.graph().nodes()) {
-        auto* w = dynamic_cast<comp::WriteNode*>(n.get());
+        auto* w = dynamic_cast<puke::WriteNode*>(n.get());
         if (!w) continue;
         auto* item = new QListWidgetItem(QString::fromStdString(w->name()), writes_);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
@@ -94,17 +94,17 @@ void RenderDialog::reset() {
 
 void RenderDialog::startRender() {
     if (rendering()) return;
-    std::vector<comp::WriteNode*> writes;
+    std::vector<puke::WriteNode*> writes;
     for (int i = 0; i < writes_->count(); ++i) {
         QListWidgetItem* item = writes_->item(i);
         if (item->checkState() != Qt::Checked) continue;
-        if (auto* w = dynamic_cast<comp::WriteNode*>(doc_.graph().find(item->text().toStdString())))
+        if (auto* w = dynamic_cast<puke::WriteNode*>(doc_.graph().find(item->text().toStdString())))
             writes.push_back(w);
     }
     log_->clear();
     try {
         job_ = std::make_unique<RenderJob>(writes, first_->value(), last_->value(), doc_.settings().format);
-    } catch (const comp::Error& e) {
+    } catch (const puke::Error& e) {
         job_.reset();
         status_->setText("Can't render: " + QString::fromStdString(e.what()));
         log(status_->text(), true);
@@ -157,4 +157,4 @@ void RenderDialog::updateButtons() {
     last_->setEnabled(!busy);
 }
 
-}  // namespace compgui
+}  // namespace pukegui

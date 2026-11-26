@@ -1,13 +1,13 @@
 #include "OfxNode.h"
 
-#include "comp/ofx/OfxHost.h"
+#include "puke/ofx/OfxHost.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 
-namespace comp::ofx {
+namespace puke::ofx {
 
 namespace {
 
@@ -168,7 +168,7 @@ std::vector<ParamSpec> OfxNode::paramSpecs() const {
 
 // OFX has two coordinate systems: canonical (the full-size image; regions
 // of definition and interest, the project) and pixel (at the render scale;
-// render windows, image bounds). comp's boxes are pixels at the render scale.
+// render windows, image bounds). puke's boxes are pixels at the render scale.
 OfxRectI OfxNode::FrameInfo::toCanonical(const Box& pixels) const {
     return toOfx(pixels.scaled(1 / scale), flipCanonical);
 }
@@ -328,7 +328,7 @@ Image OfxNode::compute(const RenderContext& ctx, const Box& region, std::span<co
     }
     plugin_.call(kOfxImageEffectActionEndSequenceRender, handle, &seq, nullptr, who());
 
-    // OFX rows run bottom-up: the first row is comp's last.
+    // OFX rows run bottom-up: the first row is puke's last.
     Image out(region, kRGBA);
     const std::size_t rowFloats = static_cast<std::size_t>(region.width()) * 4;
     for (int y = region.y0; y < region.y1; ++y)
@@ -346,7 +346,7 @@ OfxStatus OfxNode::clipImage(Clip& clip, double time, const OfxRectD*, OfxProper
         return kOfxStatFailed;
     }
     if (std::fabs(time - call->time) > 1e-6) {
-        noteProblem("comp can only provide the frame being rendered (asked for " + std::to_string(time) + ")");
+        noteProblem("puke can only provide the frame being rendered (asked for " + std::to_string(time) + ")");
         return kOfxStatFailed;
     }
 
@@ -372,7 +372,7 @@ OfxStatus OfxNode::clipImage(Clip& clip, double time, const OfxRectD*, OfxProper
         auto [it, fresh] = call->buffers.try_emplace(&clip);
         std::vector<float>& buf = it->second;
         if (fresh) {
-            // comp channels -> RGBA (or A): R/G/B by name (a lone Y as grey),
+            // puke channels -> RGBA (or A): R/G/B by name (a lone Y as grey),
             // alpha 1 where the image has none.
             auto index = [&](const char* name) { return img.channelIndex(name); };
             int r = index("R"), g = index("G"), b = index("B"), a = index("A");
@@ -527,4 +527,4 @@ void OfxNode::setValueFromPlugin(const Param& param, ParamValue value) {
     node->pluginValues_[param.name] = std::move(value);
 }
 
-}  // namespace comp::ofx
+}  // namespace puke::ofx

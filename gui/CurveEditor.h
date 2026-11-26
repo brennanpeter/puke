@@ -7,15 +7,15 @@
 #include <string>
 #include <vector>
 
-#include "comp/graph/Curve.h"
+#include "puke/graph/Curve.h"
 
 class QListWidget;
 
-namespace comp {
+namespace puke {
 class Node;
 }
 
-namespace compgui {
+namespace pukegui {
 
 class Document;
 
@@ -58,7 +58,7 @@ public:
     QPointF toData(QPointF widget) const;  // x: frame, y: value
 
     // The selected keys' common edits (also on the right-click menu).
-    void setInterp(comp::Curve::Interp interp);
+    void setInterp(puke::Curve::Interp interp);
     void setTangents(bool flat);  // flat, or back to automatic
     void deleteSelected();
 
@@ -76,14 +76,14 @@ protected:
 private:
     enum class Drag { None, Keys, Tangent, Pan };
 
-    comp::Node* node() const;
-    const comp::Curve* curveOf(const CurveRef& c) const;
+    puke::Node* node() const;
+    const puke::Curve* curveOf(const CurveRef& c) const;
     std::optional<double> componentAt(const CurveRef& c, double frame) const;
     std::optional<Selected> keyAt(QPointF w) const;
     // The tangent handle of a selected key under `w`: which key, and which side.
     std::optional<std::pair<Selected, int>> handleAt(QPointF w) const;
     QPointF handlePos(const Selected& s, int side) const;
-    void editCurves(const std::vector<std::pair<std::string, comp::Curve>>& curves, const QString& text);
+    void editCurves(const std::vector<std::pair<std::string, puke::Curve>>& curves, const QString& text);
     void dragKeysTo(QPointF w);
 
     Document& doc_;
@@ -97,7 +97,7 @@ private:
     QPointF lastMouse_;
     // Keys being dragged: the curves as they were at the press, so each move
     // applies the whole offset to them (no drift).
-    std::vector<std::pair<std::string, comp::Curve>> dragStart_;
+    std::vector<std::pair<std::string, puke::Curve>> dragStart_;
     std::optional<std::pair<Selected, int>> dragHandle_;
     double dragOffset_ = 0;  // frames the dragged keys have moved so far
     bool editOpen_ = false;
@@ -118,8 +118,8 @@ private:
     Document& doc_;
     QListWidget* list_;
     CurveView* view_;
-    comp::Node* node_ = nullptr;
+    puke::Node* node_ = nullptr;
     std::vector<std::string> params_;  // what the list shows, to notice changes
 };
 
-}  // namespace compgui
+}  // namespace pukegui

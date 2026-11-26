@@ -1,4 +1,4 @@
-#include "comp/project/Project.h"
+#include "puke/project/Project.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,9 +11,9 @@
 
 #include <nlohmann/json.hpp>
 
-#include "comp/nodes/Registry.h"
+#include "puke/nodes/Registry.h"
 
-namespace comp {
+namespace puke {
 namespace {
 
 using Json = nlohmann::ordered_json;  // keeps keys in the order written
@@ -42,7 +42,7 @@ Json paramToJson(const Node& node, const std::string& key, const ParamValue& val
 
 // ---------------------------------------------------------------- loading
 
-// Error messages say where things went wrong: "shot.comp: node 2 (Grade1): ...".
+// Error messages say where things went wrong: "shot.puke: node 2 (Grade1): ...".
 struct Where {
     const std::string& source;
     std::string node;
@@ -211,7 +211,7 @@ Json nodesJson(const Graph& graph, Include include) {
 
 std::string projectToJson(const Graph& graph) {
     Json nodes = nodesJson(graph, [](const Node*) { return true; });
-    Json doc{{"format", "comp"}, {"version", kProjectFormatVersion}};
+    Json doc{{"format", "puke"}, {"version", kProjectFormatVersion}};
     const ProjectSettings& s = graph.settings();
     if (s != ProjectSettings{})  // left out when default, like a node's position
         doc["settings"] = Json{{"first_frame", s.firstFrame},
@@ -224,7 +224,7 @@ std::string projectToJson(const Graph& graph) {
 
 std::string nodesToJson(const Graph& graph, const std::vector<const Node*>& nodes) {
     auto include = [&](const Node* n) { return std::find(nodes.begin(), nodes.end(), n) != nodes.end(); };
-    const Json doc{{"format", "comp"}, {"version", kProjectFormatVersion}, {"nodes", nodesJson(graph, include)}};
+    const Json doc{{"format", "puke"}, {"version", kProjectFormatVersion}, {"nodes", nodesJson(graph, include)}};
     return doc.dump(2) + "\n";
 }
 
@@ -239,11 +239,13 @@ Graph projectFromJson(const std::string& text, const std::string& source) {
     const Where top{source, {}};
     if (!doc.is_object()) top.fail("a project must be a JSON object");
     checkKeys(top, doc, {"format", "version", "settings", "nodes"});
-    if (require(top, doc, "format", Json::value_t::string, "a string") != "comp")
-        top.fail("not a comp project (format is '" + doc["format"].get<std::string>() + "')");
+    // "comp": what the project was called before it was puke; same format.
+    if (const std::string format = require(top, doc, "format", Json::value_t::string, "a string");
+        format != "puke" && format != "comp")
+        top.fail("not a puke project (format is '" + doc["format"].get<std::string>() + "')");
     const auto version = require(top, doc, "version", Json::value_t::number_integer, "a whole number").get<std::int64_t>();
     if (version > kProjectFormatVersion)
-        top.fail("saved by a newer version of comp (format version " + std::to_string(version) +
+        top.fail("saved by a newer version of puke (format version " + std::to_string(version) +
                  "); this build reads up to version " + std::to_string(kProjectFormatVersion));
     if (version < 1) top.fail("invalid format version " + std::to_string(version));
     const Json& nodes = require(top, doc, "nodes", Json::value_t::array, "a list");
@@ -377,4 +379,4 @@ Graph loadProject(const fs::path& path) {
     return projectFromJson(ss.str(), path.string());
 }
 
-}  // namespace comp
+}  // namespace puke

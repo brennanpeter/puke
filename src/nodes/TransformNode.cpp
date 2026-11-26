@@ -1,4 +1,4 @@
-#include "comp/nodes/TransformNode.h"
+#include "puke/nodes/TransformNode.h"
 
 #include "Resample.h"
 #include "Specs.h"
@@ -7,7 +7,7 @@
 #include <numbers>
 #include <vector>
 
-namespace comp {
+namespace puke {
 
 int TransformNode::filterRadius() const { return resample::radius(resample::parseFilter(*this)); }
 
@@ -55,4 +55,4 @@ std::vector<ParamSpec> TransformNode::paramSpecs() const {
     };
 }
 
-}  // namespace comp
+}  // namespace puke
