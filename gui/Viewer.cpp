@@ -224,6 +224,13 @@ void ViewerCanvas::paintEvent(QPaintEvent*) {
         p.restore();
         p.setPen(QColor(200, 200, 200));
     }
+    if (overlay_.overlay && placed_) {
+        const comp::ofx::Overlay::View v = overlayView();
+        const QPointF a = toImage(QPointF(0, 0)), b = toImage(QPointF(width(), height()));
+        const QImage img = overlayRenderer_.render(*overlay_.overlay, v, size(),
+                                                   comp::ofx::Overlay::canonicalRect(v, a.x(), a.y(), b.x(), b.y()));
+        if (!img.isNull()) p.drawImage(QPoint(0, 0), img);
+    }
     if (!readout_.isEmpty()) p.drawText(rect().adjusted(8, 6, -8, -6), Qt::AlignBottom | Qt::AlignLeft, readout_);
     const QString msg = !message_.isEmpty() ? message_ : result_.error;
     if (!msg.isEmpty()) {
@@ -242,6 +249,22 @@ void ViewerCanvas::wheelEvent(QWheelEvent* e) {
     emit viewChanged();
 }
 
+void ViewerCanvas::setOverlay(OverlayHooks hooks) {
+    if (overlayDragging_ && overlay_.done) overlay_.done();
+    overlayDragging_ = false;
+    overlay_ = std::move(hooks);
+    update();
+}
+
+comp::ofx::Overlay::View ViewerCanvas::overlayView() const {
+    comp::ofx::Overlay::View v = overlay_.view ? overlay_.view() : comp::ofx::Overlay::View{};
+    v.pixelScale = 1 / zoom_;
+    v.viewportWidth = width();
+    v.viewportHeight = height();
+    v.background = {30 / 255.0, 30 / 255.0, 32 / 255.0};
+    return v;
+}
+
 void ViewerCanvas::setTool(RotoTool* tool) {
     tool_ = tool;
     connect(tool, &RotoTool::changed, this, qOverload<>(&QWidget::update));
@@ -257,6 +280,14 @@ void ViewerCanvas::mousePressEvent(QMouseEvent* e) {
         lastMouse_ = e->pos();
         fitted_ = false;
         return;
+    }
+    if (e->button() == Qt::LeftButton && overlay_.overlay) {
+        const QPointF p = toImage(e->position());
+        if (overlay_.overlay->penDown(overlayView(), p.x(), p.y(), overlay_.edit)) {
+            overlayDragging_ = true;
+            update();
+            return;
+        }
     }
     if (e->button() == Qt::LeftButton && tool_ && tool_->press(toImage(e->position()), kHitPixels / zoom_)) {
         toolDragging_ = true;
@@ -281,6 +312,12 @@ bool ViewerCanvas::event(QEvent* e) {
 }
 
 void ViewerCanvas::mouseMoveEvent(QMouseEvent* e) {
+    if (overlay_.overlay && !panning_) {
+        const QPointF p = toImage(e->position());
+        const bool used = overlay_.overlay->penMotion(overlayView(), p.x(), p.y(), overlay_.edit);
+        if (used || overlay_.overlay->takeRedrawRequest()) update();
+        if (overlayDragging_) return;
+    }
     if (toolDragging_ && tool_->move(toImage(e->position()))) return;
     if (panning_) {
         offset_ += e->pos() - lastMouse_;
@@ -308,6 +345,14 @@ void ViewerCanvas::mouseMoveEvent(QMouseEvent* e) {
 
 void ViewerCanvas::mouseReleaseEvent(QMouseEvent* e) {
     panning_ = false;
+    if (overlayDragging_) {
+        overlayDragging_ = false;
+        const QPointF p = toImage(e->position());
+        overlay_.overlay->penUp(overlayView(), p.x(), p.y(), overlay_.edit);
+        if (overlay_.done) overlay_.done();
+        update();
+        return;
+    }
     if (toolDragging_) {
         toolDragging_ = false;
         tool_->release(toImage(e->position()));
@@ -315,6 +360,28 @@ void ViewerCanvas::mouseReleaseEvent(QMouseEvent* e) {
 }
 
 void ViewerCanvas::keyPressEvent(QKeyEvent* e) {
+    if (overlay_.overlay) {
+        using K = comp::ofx::Overlay::Key;
+        K key = K::Character;
+        switch (e->key()) {
+            case Qt::Key_Return: case Qt::Key_Enter: key = K::Return; break;
+            case Qt::Key_Escape: key = K::Escape; break;
+            case Qt::Key_Delete: key = K::Delete; break;
+            case Qt::Key_Backspace: key = K::Backspace; break;
+            case Qt::Key_Tab: key = K::Tab; break;
+            case Qt::Key_Left: key = K::Left; break;
+            case Qt::Key_Right: key = K::Right; break;
+            case Qt::Key_Up: key = K::Up; break;
+            case Qt::Key_Down: key = K::Down; break;
+            default: break;
+        }
+        const bool used = overlay_.overlay->keyDown(overlayView(), key, e->text().toStdString(), overlay_.edit);
+        if (overlay_.done) overlay_.done();
+        if (used) {
+            update();
+            return;
+        }
+    }
     if (tool_ && tool_->key(e->key())) return;
     if (e->key() == Qt::Key_F) fit();
     else if (e->key() == Qt::Key_Home) oneToOne();
@@ -373,6 +440,12 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
         draw->setChecked(on);
     });
     connect(&doc_, &Document::selectionChanged, draw, [this, draw] { draw->setVisible(roto_->node() != nullptr); });
+    connect(&doc_, &Document::selectionChanged, this, &Viewer::updateOverlay);
+    connect(&doc_, &Document::structureChanged, this, &Viewer::updateOverlay);
+    connect(&doc_, &Document::paramChanged, this, [this](comp::Node* n) {
+        if (overlay_ && n == &overlay_->node()) canvas_->update();
+    });
+    connect(&doc_, &Document::frameChanged, canvas_, qOverload<>(&QWidget::update));
     layout->addWidget(canvas_, 1);
 
     try {
@@ -415,7 +488,11 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     requestRender();
 }
 
-Viewer::~Viewer() { worker_.reset(); }  // stop the thread before the widgets go
+Viewer::~Viewer() {
+    worker_.reset();  // stop the thread before the widgets go
+    canvas_->setOverlay({});  // and the overlay (its hooks point back here)
+    overlay_.reset();
+}
 
 void Viewer::fillViews() {
     QSignalBlocker block(view_);
@@ -431,6 +508,47 @@ void Viewer::fillViews() {
         }
     } catch (const comp::Error&) {
     }
+}
+
+void Viewer::updateOverlay() {
+    comp::Node* sel = doc_.selected();
+    if (overlay_ && sel == &overlay_->node()) return;  // the same node
+    canvas_->setOverlay({});
+    overlay_.reset();
+    if (!sel) return;
+    try {
+        overlay_ = comp::ofx::Overlay::create(*sel);
+    } catch (const std::exception&) {
+        overlay_.reset();  // a plugin that can't make one: no overlay
+    }
+    if (!overlay_) return;
+    comp::Node* node = sel;
+    ViewerCanvas::OverlayHooks hooks;
+    hooks.overlay = overlay_.get();
+    hooks.view = [this] {
+        comp::ofx::Overlay::View v;
+        v.time = doc_.frame();
+        v.renderScale = proxy_->currentData().toDouble();
+        v.format = doc_.settings().format;
+        const comp::Box f = canvas_->result().fullFrame.empty() ? v.format.box() : canvas_->result().fullFrame;
+        v.flipY = f.y0 + f.y1;
+        return v;
+    };
+    // A drag's changes are one undo step.
+    hooks.edit = [this, node](const std::string& key, comp::ParamValue value) {
+        if (!overlayEditOpen_) {
+            doc_.beginEdit("Edit " + QString::fromStdString(node->name()) + " in the viewer");
+            overlayEditOpen_ = true;
+        }
+        doc_.setParam(*node, key, std::move(value));
+    };
+    hooks.done = [this] {
+        if (overlayEditOpen_) {
+            doc_.endEdit();
+            overlayEditOpen_ = false;
+        }
+    };
+    canvas_->setOverlay(std::move(hooks));
 }
 
 void Viewer::requestRender() {

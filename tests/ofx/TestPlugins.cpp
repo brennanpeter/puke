@@ -24,9 +24,15 @@
 
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
+#include "ofxInteract.h"
+#include "ofxKeySyms.h"
 #include "ofxMessage.h"
 #include "ofxParam.h"
 #include "ofxProperty.h"
+
+#ifdef COMP_TEST_GL
+#include <GL/gl.h>
+#endif
 
 #if defined(_WIN32)
 #define EXPORT extern "C" __declspec(dllexport)
@@ -41,6 +47,7 @@ const OfxPropertySuiteV1* gProp = nullptr;
 const OfxImageEffectSuiteV1* gEffect = nullptr;
 const OfxParameterSuiteV1* gParam = nullptr;
 const OfxMessageSuiteV1* gMessage = nullptr;
+const OfxInteractSuiteV1* gInteract = nullptr;
 
 void setHost(OfxHost* host) {
     gHost = host;
@@ -48,6 +55,7 @@ void setHost(OfxHost* host) {
     gEffect = static_cast<const OfxImageEffectSuiteV1*>(host->fetchSuite(host->host, kOfxImageEffectSuite, 1));
     gParam = static_cast<const OfxParameterSuiteV1*>(host->fetchSuite(host->host, kOfxParameterSuite, 1));
     gMessage = static_cast<const OfxMessageSuiteV1*>(host->fetchSuite(host->host, kOfxMessageSuite, 1));
+    gInteract = static_cast<const OfxInteractSuiteV1*>(host->fetchSuite(host->host, kOfxInteractSuite, 1));
 }
 
 OfxStatus fail(OfxImageEffectHandle effect, const std::string& msg) {
@@ -408,6 +416,116 @@ OfxStatus generatorMain(const char* action, const void* handle, OfxPropertySetHa
     return kOfxStatReplyDefault;
 }
 
+// ================================================================ Point
+// A pass-through filter with a "point" (canonical pixels) and an overlay:
+// a red cross at the point, dragged with the pen; R resets it.
+
+struct PointState {
+    bool dragging = false;
+};
+
+OfxStatus pointOverlayMain(const char* action, const void* handle, OfxPropertySetHandle in, OfxPropertySetHandle) {
+    auto interact = static_cast<OfxInteractHandle>(const_cast<void*>(handle));
+    OfxPropertySetHandle props;
+    gInteract->interactGetPropertySet(interact, &props);
+    if (!std::strcmp(action, kOfxActionDescribe)) return kOfxStatOK;
+    if (!std::strcmp(action, kOfxActionCreateInstance)) {
+        gProp->propSetPointer(props, kOfxPropInstanceData, 0, new PointState);
+        return kOfxStatOK;
+    }
+    void* data = nullptr;
+    gProp->propGetPointer(props, kOfxPropInstanceData, 0, &data);
+    auto* state = static_cast<PointState*>(data);
+    if (!std::strcmp(action, kOfxActionDestroyInstance)) {
+        delete state;
+        return kOfxStatOK;
+    }
+    void* effect = nullptr;
+    gProp->propGetPointer(in, kOfxPropEffectInstance, 0, &effect);
+    auto e = static_cast<OfxImageEffectHandle>(effect);
+    double scale[2] = {1, 1};
+    gProp->propGetDoubleN(in, kOfxInteractPropPixelScale, 2, scale);
+    double px = 0, py = 0;
+    gParam->paramGetValue(param(e, "point"), &px, &py);
+
+    if (!std::strcmp(action, kOfxInteractActionDraw)) {
+#ifdef COMP_TEST_GL
+        const double r = 10 * scale[0];
+        glColor3f(1, 0, 0);
+        glLineWidth(1);
+        glBegin(GL_LINES);
+        glVertex2d(px - r, py);
+        glVertex2d(px + r, py);
+        glVertex2d(px, py - r);
+        glVertex2d(px, py + r);
+        glEnd();
+#endif
+        return kOfxStatOK;
+    }
+    double pen[2] = {0, 0};
+    if (!std::strcmp(action, kOfxInteractActionPenDown)) {
+        gProp->propGetDoubleN(in, kOfxInteractPropPenPosition, 2, pen);
+        if (std::hypot(pen[0] - px, pen[1] - py) > 6 * scale[0]) return kOfxStatReplyDefault;
+        state->dragging = true;
+        return kOfxStatOK;
+    }
+    if (!std::strcmp(action, kOfxInteractActionPenMotion)) {
+        if (!state->dragging) return kOfxStatReplyDefault;
+        gProp->propGetDoubleN(in, kOfxInteractPropPenPosition, 2, pen);
+        gParam->paramSetValue(param(e, "point"), pen[0], pen[1]);
+        gInteract->interactRedraw(interact);
+        return kOfxStatOK;
+    }
+    if (!std::strcmp(action, kOfxInteractActionPenUp)) {
+        if (!state->dragging) return kOfxStatReplyDefault;
+        state->dragging = false;
+        return kOfxStatOK;
+    }
+    if (!std::strcmp(action, kOfxInteractActionKeyDown)) {
+        int sym = 0;
+        gProp->propGetInt(in, kOfxPropKeySym, 0, &sym);
+        if (sym != 'r') return kOfxStatReplyDefault;
+        gParam->paramSetValue(param(e, "point"), 10.0, 10.0);
+        return kOfxStatOK;
+    }
+    return kOfxStatReplyDefault;
+}
+
+OfxStatus pointMain(const char* action, const void* handle, OfxPropertySetHandle in, OfxPropertySetHandle) {
+    auto e = static_cast<OfxImageEffectHandle>(const_cast<void*>(handle));
+    if (!std::strcmp(action, kOfxActionDescribe)) {
+        describeCommon(e, "Test Point", kOfxImageEffectContextFilter, kOfxBitDepthFloat,
+                       kOfxImageEffectRenderFullySafe, 1);
+        gProp->propSetPointer(effectProps(e), kOfxImageEffectPluginPropOverlayInteractV1, 0,
+                              reinterpret_cast<void*>(&pointOverlayMain));
+        return kOfxStatOK;
+    }
+    if (!std::strcmp(action, kOfxImageEffectActionDescribeInContext)) {
+        defineClip(e, kOfxImageEffectOutputClipName, kOfxImageComponentRGBA);
+        defineClip(e, kOfxImageEffectSimpleSourceClipName, kOfxImageComponentRGBA);
+        OfxPropertySetHandle p = defineParam(e, kOfxParamTypeDouble2D, "point");
+        gProp->propSetDouble(p, kOfxParamPropDefault, 0, 10.0);
+        gProp->propSetDouble(p, kOfxParamPropDefault, 1, 10.0);
+        return kOfxStatOK;
+    }
+    if (!std::strcmp(action, kOfxImageEffectActionRender)) {  // passes its input through
+        OfxTime t;
+        OfxRectI w;
+        renderArgs(in, t, w);
+        Img src, dst;
+        if (!dst.fetch(e, kOfxImageEffectOutputClipName, t) || !src.fetch(e, kOfxImageEffectSimpleSourceClipName, t))
+            return fail(e, "missing image");
+        for (int y = w.y1; y < w.y2; ++y)
+            for (int x = w.x1; x < w.x2; ++x) {
+                float* d = dst.at(x, y);
+                if (src.inside(x, y)) std::memcpy(d, src.at(x, y), 4 * sizeof(float));
+                else std::memset(d, 0, 4 * sizeof(float));
+            }
+        return kOfxStatOK;
+    }
+    return kOfxStatReplyDefault;
+}
+
 // ================================================================ ones comp should refuse
 
 OfxStatus transitionMain(const char* action, const void* handle, OfxPropertySetHandle, OfxPropertySetHandle) {
@@ -438,6 +556,7 @@ OfxPlugin plugins[] = {
     {kOfxImageEffectPluginApi, 1, "org.comp.test.Generator", 1, 0, setHost, generatorMain},
     {kOfxImageEffectPluginApi, 1, "org.comp.test.ByteOnly", 1, 0, setHost, byteOnlyMain},
     {kOfxImageEffectPluginApi, 1, "org.comp.test.Transition", 1, 0, setHost, transitionMain},
+    {kOfxImageEffectPluginApi, 1, "org.comp.test.Point", 1, 0, setHost, pointMain},
 };
 
 }  // namespace

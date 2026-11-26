@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "OfxInternal.h"
+#include "comp/ofx/Overlay.h"
 
 namespace comp::ofx {
 
@@ -53,6 +54,8 @@ public:
     static void setValueFromPlugin(const Param& param, ParamValue value);
 
 private:
+    friend class Overlay;
+    friend struct Overlay::Impl;
     // What the info pass worked out, per frame, for the region and render
     // passes that follow it (their Node hooks don't get input infos).
     struct FrameInfo {

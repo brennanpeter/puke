@@ -442,8 +442,17 @@ bool OfxNode::paramValue(const Param& param, std::vector<double>& numbers, std::
     ParamValue fromPlugin;
     if (node) {
         auto it = node->params().find(param.name);
+        std::optional<ParamValue> animated;
+        if (it == node->params().end() && node->animated(param.name)) {
+            // Outside a render (an overlay drawing, say): at the call's time.
+            const CallContext* call = currentContext();
+            animated = node->valueAt(param.name, call ? call->time : 1.0);
+        }
         if (it != node->params().end()) {
             value = &it->second;
+        } else if (animated) {
+            fromPlugin = *animated;
+            value = &fromPlugin;
         } else {
             std::lock_guard lock(node->pluginValuesMutex_);
             auto pv = node->pluginValues_.find(param.name);
@@ -509,6 +518,11 @@ bool OfxNode::paramValue(const Param& param, std::vector<double>& numbers, std::
 void OfxNode::setValueFromPlugin(const Param& param, ParamValue value) {
     const OfxNode* node = param.effect ? param.effect->node : nullptr;
     if (!node) return;  // a descriptor: nothing to store
+    // During an overlay event: a real edit of the parameter (see Overlay).
+    if (InteractEdit* e = currentInteractEdit(); e && e->node == node) {
+        (*e->edit)(param.name, std::move(value));
+        return;
+    }
     std::lock_guard lock(node->pluginValuesMutex_);
     node->pluginValues_[param.name] = std::move(value);
 }

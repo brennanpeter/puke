@@ -4,6 +4,7 @@
 // loading) and OfxNode.cpp (running a plugin inside the engine). Nothing
 // here is public API; see include/comp/ofx/OfxHost.h for that.
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -187,6 +188,16 @@ struct CallContext {
 };
 
 CallContext* currentContext();
+
+// During an overlay interact event: where values the plugin sets go (an
+// undoable edit in a GUI) instead of the node's plugin-set values.
+struct InteractEdit {
+    const OfxNode* node;
+    const std::function<void(const std::string&, ParamValue)>* edit;
+};
+InteractEdit*& currentInteractEdit();
+// The OfxInteractSuiteV1 (Overlay.cpp).
+const void* interactSuite();
 struct ScopedContext {
     explicit ScopedContext(CallContext* c);
     ~ScopedContext();
