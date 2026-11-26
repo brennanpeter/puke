@@ -31,8 +31,9 @@ public:
     std::vector<ParamSpec> paramSpecs() const override;
     int maxInputs() const override { return 1; }
 
-    // Input pixel space -> output pixel space.
-    Affine matrix() const;
+    // Input pixel space -> output pixel space, at `scale` (a proxy render:
+    // translate and center are in full-size pixels).
+    Affine matrix(double scale = 1) const;
 
     ImageInfo computeInfo(const RenderContext& ctx,
                           std::span<const ImageInfo* const> inputs) const override;

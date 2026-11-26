@@ -28,9 +28,9 @@ bool supports(const PropertySet& ps, const char* prop, const char* value) {
     return std::find(v.begin(), v.end(), value) != v.end();
 }
 
-// Render-scale-1, single-field arguments shared by the render actions.
-void addRenderArgs(PropertySet& args, double time) {
-    args.setDoubles(kOfxImageEffectPropRenderScale, {1.0, 1.0});
+// Single-field arguments shared by the render actions.
+void addRenderArgs(PropertySet& args, double time, double scale) {
+    args.setDoubles(kOfxImageEffectPropRenderScale, {scale, scale});
     args.setInt(kOfxImageEffectPropSequentialRenderStatus, 0, 0);
     args.setInt(kOfxImageEffectPropInteractiveRenderStatus, 0, 0);
     args.setDouble(kOfxPropTime, 0, time);
@@ -166,10 +166,23 @@ std::vector<ParamSpec> OfxNode::paramSpecs() const {
     return out;
 }
 
+// OFX has two coordinate systems: canonical (the full-size image; regions
+// of definition and interest, the project) and pixel (at the render scale;
+// render windows, image bounds). comp's boxes are pixels at the render scale.
+OfxRectI OfxNode::FrameInfo::toCanonical(const Box& pixels) const {
+    return toOfx(pixels.scaled(1 / scale), flipCanonical);
+}
+
+Box OfxNode::FrameInfo::fromCanonical(const OfxRectD& canonical) const {
+    return fromOfx(canonical, flipCanonical).scaled(scale);
+}
+
 void OfxNode::fillContext(CallContext& call, const FrameInfo& fi, double time) const {
     call.node = this;
     call.time = time;
     call.flipY = fi.flipY;
+    call.scale = fi.scale;
+    call.flipCanonical = fi.flipCanonical;
     call.inputInfos = fi.inputs;
     call.connected = fi.connected;
     call.outputInfo = fi.output;
@@ -177,7 +190,7 @@ void OfxNode::fillContext(CallContext& call, const FrameInfo& fi, double time) c
 
 OfxNode::FrameInfo OfxNode::frameInfo(const RenderContext& ctx) const {
     std::lock_guard lock(infoMutex_);
-    auto it = frameInfos_.find(ctx.frame);
+    auto it = frameInfos_.find(keyOf(ctx));
     if (it == frameInfos_.end()) throw Error(who() + ": asked to render before its info pass for this frame");
     return it->second;
 }
@@ -194,8 +207,11 @@ ImageInfo OfxNode::computeInfo(const RenderContext& ctx, std::span<const ImageIn
     }
     // A filter's frame is its input's; with no input connected (a
     // generator), the project's format.
-    const Box display = first ? first->displayWindow : ctx.format.box();
+    const Box display = first ? first->displayWindow : ctx.frameBox();
     fi.flipY = display.y0 + display.y1;
+    fi.scale = ctx.scale;
+    const Box canonicalDisplay = display.scaled(1 / ctx.scale);
+    fi.flipCanonical = canonicalDisplay.y0 + canonicalDisplay.y1;
 
     std::lock_guard lock(actionMutex_);
     std::unique_lock unsafe(plugin_.renderMutex, std::defer_lock);
@@ -204,7 +220,7 @@ ImageInfo OfxNode::computeInfo(const RenderContext& ctx, std::span<const ImageIn
 
     // The project is that frame, in OFX coordinates.
     Effect& e = *instance_;
-    const OfxRectI project = toOfx(display, fi.flipY);
+    const OfxRectI project = toOfx(canonicalDisplay, fi.flipCanonical);
     e.setDoubles(kOfxImageEffectPropProjectOffset, {double(project.x1), double(project.y1)});
     e.setDoubles(kOfxImageEffectPropProjectSize, {double(project.x2 - project.x1), double(project.y2 - project.y1)});
     e.setDoubles(kOfxImageEffectPropProjectExtent, {double(project.x2), double(project.y2)});
@@ -228,11 +244,11 @@ ImageInfo OfxNode::computeInfo(const RenderContext& ctx, std::span<const ImageIn
     ScopedContext scope(&call);
     PropertySet in, out;
     in.setDouble(kOfxPropTime, 0, ctx.frame);
-    in.setDoubles(kOfxImageEffectPropRenderScale, {1.0, 1.0});
-    setRectD(out, kOfxImageEffectPropRegionOfDefinition, toOfx(defaultRod, fi.flipY));
+    in.setDoubles(kOfxImageEffectPropRenderScale, {ctx.scale, ctx.scale});
+    setRectD(out, kOfxImageEffectPropRegionOfDefinition, fi.toCanonical(defaultRod));
     plugin_.call(kOfxImageEffectActionGetRegionOfDefinition, e.handle(), &in, &out, who());
 
-    Box rod = fromOfx(getRectD(out, kOfxImageEffectPropRegionOfDefinition), fi.flipY);
+    Box rod = fi.fromCanonical(getRectD(out, kOfxImageEffectPropRegionOfDefinition));
     // "Infinite" edges become the frame's edges.
     constexpr int kHuge = 100'000'000;
     if (rod.x0 < -kHuge) rod.x0 = display.x0;
@@ -244,7 +260,7 @@ ImageInfo OfxNode::computeInfo(const RenderContext& ctx, std::span<const ImageIn
     {
         std::lock_guard infoLock(infoMutex_);
         if (frameInfos_.size() > 64) frameInfos_.clear();  // keep it small; the next info pass refills it
-        frameInfos_[ctx.frame] = fi;
+        frameInfos_[keyOf(ctx)] = fi;
     }
     return fi.output;
 }
@@ -261,12 +277,12 @@ Box OfxNode::inputRegion(const RenderContext& ctx, int index, const Box& outputR
     ScopedContext scope(&call);
     PropertySet in, out;
     in.setDouble(kOfxPropTime, 0, ctx.frame);
-    in.setDoubles(kOfxImageEffectPropRenderScale, {1.0, 1.0});
-    const OfxRectI wanted = toOfx(outputRegion, fi.flipY);
+    in.setDoubles(kOfxImageEffectPropRenderScale, {ctx.scale, ctx.scale});
+    const OfxRectI wanted = fi.toCanonical(outputRegion);
     setRectD(in, kOfxImageEffectPropRegionOfInterest, wanted);
     for (const Clip* c : inputClips_) setRectD(out, ("OfxImageClipPropRoI_" + c->name).c_str(), wanted);
     plugin_.call(kOfxImageEffectActionGetRegionsOfInterest, instance_->handle(), &in, &out, who());
-    return fromOfx(getRectD(out, ("OfxImageClipPropRoI_" + inputClips_[index]->name).c_str()), fi.flipY);
+    return fi.fromCanonical(getRectD(out, ("OfxImageClipPropRoI_" + inputClips_[index]->name).c_str()));
 }
 
 Image OfxNode::compute(const RenderContext& ctx, const Box& region, std::span<const Image* const> inputs) const {
@@ -289,12 +305,12 @@ Image OfxNode::compute(const RenderContext& ctx, const Box& region, std::span<co
 
     ScopedContext scope(&call);
     PropertySet seq;
-    addRenderArgs(seq, ctx.frame);
+    addRenderArgs(seq, ctx.frame, ctx.scale);
     seq.setDoubles(kOfxImageEffectPropFrameRange, {ctx.frame, ctx.frame});
     seq.setDouble(kOfxImageEffectPropFrameStep, 0, 1.0);
     seq.setInt(kOfxPropIsInteractive, 0, 0);
     PropertySet args;
-    addRenderArgs(args, ctx.frame);
+    addRenderArgs(args, ctx.frame, ctx.scale);
     args.setString(kOfxImageEffectPropFieldToRender, 0, kOfxImageFieldNone);
     args.setInt(kOfxImageEffectPropRenderQualityDraft, 0, 0);
     setRect(args, kOfxImageEffectPropRenderWindow, toOfx(region, fi.flipY));
@@ -391,7 +407,7 @@ OfxStatus OfxNode::clipImage(Clip& clip, double time, const OfxRectD*, OfxProper
     image->setString(kOfxImageEffectPropPixelDepth, 0, kOfxBitDepthFloat);
     image->setString(kOfxImageEffectPropPreMultiplication, 0, kOfxImagePreMultiplied);
     image->setDouble(kOfxImagePropPixelAspectRatio, 0, 1.0);
-    image->setDoubles(kOfxImageEffectPropRenderScale, {1.0, 1.0});
+    image->setDoubles(kOfxImageEffectPropRenderScale, {call->scale, call->scale});
     image->setString(kOfxImagePropField, 0, kOfxImageFieldNone);
     image->setString(kOfxImagePropUniqueIdentifier, 0,
                      clip.name + "@" + std::to_string(time) + "#" + std::to_string(reinterpret_cast<std::uintptr_t>(data)));
@@ -406,7 +422,8 @@ OfxStatus OfxNode::clipRegionOfDefinition(Clip& clip, double, OfxRectD* bounds) 
     if (clip.input < 0) rod = call->outputInfo.dataWindow;
     else if (static_cast<std::size_t>(clip.input) < call->inputInfos.size() && call->connected[clip.input])
         rod = call->inputInfos[clip.input].dataWindow;
-    const OfxRectI r = toOfx(rod, call->flipY);
+    // Canonical coordinates: full size.
+    const OfxRectI r = toOfx(rod.scaled(1 / call->scale), call->flipCanonical);
     *bounds = {double(r.x1), double(r.y1), double(r.x2), double(r.y2)};
     return kOfxStatOK;
 }

@@ -309,6 +309,41 @@ static void testGenerator() {
     CHECK(e.render(gain, small, {0, 0, 1, 1}).pixel(0, 0)[0] == 0.5f);
 }
 
+// Proxy renders: plugins get the render scale, regions in canonical
+// (full-size) coordinates and images at the render scale.
+static void testRenderScale() {
+    Graph g;
+    auto& src = source(g);
+    Node& gain = ofxNode(g, "org.comp.test.Gain", "Gain1");
+    g.connect(src, gain, 0);
+    gain.setParam("gain", 2.0);
+    Node& shift = ofxNode(g, "org.comp.test.Shift", "Shift1");
+    g.connect(gain, shift, 0);
+    shift.setParam("shift", Vec2{4, -2});  // canonical pixels: 2, -1 at half size
+    Engine e;
+    const RenderContext full{1, Format{40, 24}, 1.0}, half{1, Format{40, 24}, 0.5};
+    // The test SourceNode ignores the scale (its windows stay put), so this
+    // checks the round trip through canonical coordinates: its data window,
+    // doubled to canonical, shifted (4, -2) by the plugin (y up), halved
+    // back: moved (2, +1).
+    const ImageInfo hi = e.info(shift, half);
+    CHECK((hi.dataWindow == Box{kData.x0 + 2, kData.y0 + 1, kData.x1 + 2, kData.y1 + 1}));
+    (void)full;
+    const Image in = e.render(src, half, hi.dataWindow);
+    const Image out = e.render(shift, half, hi.dataWindow);
+    // Shifted by (2, -1) pixels at half size; OFX y is up, so comp y moves +1.
+    CHECK(std::fabs(out.pixel(5, 5)[0] - 2 * in.pixel(3, 4)[0]) < 1e-6f);
+
+    // A generator: its frame is the format at the scale; the project size it
+    // sees is full size; render coordinates are pixels at the scale.
+    Node& gen = ofxNode(g, "org.comp.test.Generator", "Gen1");
+    const RenderContext ctx{1, Format{64, 32}, 0.5};
+    const ImageInfo gi = e.info(gen, ctx);
+    CHECK((gi.displayWindow == Box{0, 0, 32, 16}) && (gi.dataWindow == Box{0, 0, 32, 16}));
+    const Image img = e.render(gen, ctx, gi.dataWindow);
+    CHECK(img.pixel(5, 0)[1] == 5.0f && img.pixel(5, 0)[2] == 15.0f && img.pixel(5, 0)[3] == 32.0f);
+}
+
 static void testCacheAndProjects() {
     Graph g;
     auto& src = source(g);
@@ -355,6 +390,7 @@ int main() {
         testCoordinateConvention();
         testMaskAndThreadSafety();
         testGenerator();
+        testRenderScale();
         testCacheAndProjects();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "unexpected exception: %s\n", e.what());

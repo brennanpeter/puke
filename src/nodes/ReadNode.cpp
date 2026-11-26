@@ -97,11 +97,23 @@ void ReadNode::appendHash(Hasher& h, const RenderContext& ctx) const {
 }
 
 ImageInfo ReadNode::computeInfo(const RenderContext& ctx, std::span<const ImageInfo* const>) const {
-    return fileInfo(ctx);
+    ImageInfo info = fileInfo(ctx);
+    info.dataWindow = info.dataWindow.scaled(ctx.scale);  // proxy: the file shrunk
+    info.displayWindow = info.displayWindow.scaled(ctx.scale);
+    return info;
 }
 
 Image ReadNode::compute(const RenderContext& ctx, const Box& region,
-                        std::span<const Image* const>) const {
+                        std::span<const Image* const> inputs) const {
+    if (ctx.scale == 1) return readRegion(ctx, region);
+    // Proxy: read the full-size pixels under the region, then average them
+    // down (in the working space, so averaging happens in linear light).
+    const Box full = region.scaled(1 / ctx.scale);
+    (void)inputs;
+    return downscale(readRegion(ctx, full), region, ctx.scale);
+}
+
+Image ReadNode::readRegion(const RenderContext& ctx, const Box& region) const {
     auto path = resolvePath(ctx);
     if (path.empty()) return Image(region, fileInfo(ctx).channels);  // all zeros
 

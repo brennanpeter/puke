@@ -104,6 +104,13 @@ Key decisions:
   shapes animate point by point. Key buttons in the properties panel,
   editing an animated value keys it, keys marked on the timeline. Saved
   in projects; Python set_key/keys/value_at.
+- [x] **Curve editor**: a tab beside the node graph; select, move and add
+  keys, drag tangent handles (keys can have their own slopes), set
+  interpolation.
+- [x] **Proxy resolution**: RenderContext::scale; every node scales the
+  distances it reads (Read area-averages its file down), OFX plugins get
+  the render scale with canonical/pixel conversions; the viewer's proxy
+  menu (full, 1/2, 1/4, 1/8) draws the smaller picture at full size.
 
 ## Next
 
@@ -111,17 +118,9 @@ In planned order. Items further down are less settled.
 
 ### 1. GUI, third milestone
 Left over from the second, each needing groundwork first:
-- **Proxy resolution**: rendering at a fraction of full size needs a
-  render scale passed through the engine to every node (Transform
-  offsets, filter sizes, OFX's render scale), or results won't match full
-  resolution. Viewer region of interest covers the "big plates" problem
-  meanwhile.
 - **OFX overlays and custom parameter interacts**: OFX draws these with
   OpenGL, so the viewer needs an OpenGL canvas and the host needs the
   interact suite (pen and key events, redraw requests).
-- **A curve editor**: keys can only be set, removed and given an
-  interpolation from the properties panel now; no moving keys in time or
-  shaping tangents by hand.
 - Smaller: cancelling a render mid-frame (now it stops between files),
   caching frames ahead of playback in the background (now playback
   caches as it goes), and keeping cached frames when an edit doesn't
@@ -165,7 +164,7 @@ Smaller items already marked in the code:
   ThreadSanitizer reports remain inside Qt's own event posting (Qt isn't
   built with TSan); comp's data is race-free (`gui/`).
 - **OFX**: no access to other frames than the one rendering (nor to
-  parameter values at other times), render scale 1 only,
+  parameter values at other times),
   Linux bundles only. Plugins' own multithreading runs on one thread
   (comp already renders tiles on every core). Parametric parameters
   (curves) aren't hosted. Plugins are never unloaded (`src/ofx/`).

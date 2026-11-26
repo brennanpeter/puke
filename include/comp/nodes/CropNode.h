@@ -26,8 +26,9 @@ public:
     std::vector<ParamSpec> paramSpecs() const override;
     int maxInputs() const override { return 1; }
 
-    // The box, in input pixels. Throws if it's empty.
-    Box box() const;
+    // The box, in input pixels at `scale` (see RenderContext::scale).
+    // Throws if it's empty.
+    Box box(double scale = 1) const;
 
     ImageInfo computeInfo(const RenderContext& ctx, std::span<const ImageInfo* const> inputs) const override;
     Box inputRegion(const RenderContext& ctx, int index, const Box& outputRegion) const override;

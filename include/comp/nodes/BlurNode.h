@@ -36,7 +36,7 @@ public:
     Image compute(const RenderContext& ctx, const Box& region, std::span<const Image* const> inputs) const override;
 
 private:
-    Vec2 size() const;  // checked
+    Vec2 size(double scale) const;  // checked, in pixels at `scale`
 };
 
 }  // namespace comp

@@ -20,6 +20,7 @@ if(NOT OpenColorIO_FOUND)
 endif()
 
 add_library(comp_core
+    src/core/Downscale.cpp
     src/core/FramePattern.cpp
     src/core/Path.cpp
     src/graph/Node.cpp
@@ -69,7 +70,7 @@ add_executable(comp_render tools/comp_render.cpp)
 target_link_libraries(comp_render PRIVATE comp_core)
 
 enable_testing()
-foreach(test read_write engine nodes more_nodes roto animation cli golden project color ofx)
+foreach(test read_write engine nodes more_nodes roto animation proxy cli golden project color ofx)
     add_executable(test_${test} tests/test_${test}.cpp)
     target_link_libraries(test_${test} PRIVATE comp_core)
     add_test(NAME ${test} COMMAND test_${test} WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

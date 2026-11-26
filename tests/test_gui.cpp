@@ -917,6 +917,44 @@ int main(int argc, char** argv) {
             w.bottomTabs().setCurrentIndex(0);
         }
 
+        // --- Proxy in the viewer.
+        {
+            comp::Node& read1 = *doc.graph().find("Read1");
+            doc.setViewed(&read1);
+            ViewerCanvas* canvas = viewer.canvas();
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            canvas->fit();
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            const auto visibleBefore = canvas->visibleRegion();
+            auto* proxy = find<QComboBox>(viewer, "viewerProxy");
+            CHECK(proxy && proxy->currentText() == "Full");
+            proxy->setCurrentText("1/2");
+            CHECK(waitFor([&] { return !viewer.busy() && canvas->result().scale == 0.5; }));
+            // Half-size pixels: each the average of four full-size ones.
+            CHECK((canvas->result().displayWindow == comp::Box{0, 0, 80, 45}));
+            CHECK((canvas->result().fullFrame == comp::Box{0, 0, 160, 90}));  // the full-size frame, for drawing
+            const float avg = (plate(20, 10, 1) + plate(21, 10, 1) + plate(20, 11, 1) + plate(21, 11, 1)) / 4;
+            CHECK(std::fabs(viewerPixel(viewer, 10, 5, 1) - avg) < 1e-5f);
+            // The view didn't move: drawing and editing stay in full-size pixels.
+            CHECK(canvas->visibleRegion() == visibleBefore);
+
+            // Roto points are picked at full-size positions in a proxy view.
+            comp::Node& roto = doc.createNode("Roto", {1400, 0}, &read1);
+            doc.setParam(roto, "shape", std::string("M 20 20 L 60 20 L 60 60 Z"));
+            doc.setSelected(&roto);
+            doc.setViewed(&roto);
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            CHECK(viewer.rotoTool()->press({60, 20}, 1));
+            viewer.rotoTool()->release({60, 20});
+            CHECK((viewer.rotoTool()->selection() == std::pair{0, 1}));
+            // At half size the matte's pixel (15, 15) is the average of full-size
+            // (30..31, 30..31), inside the triangle.
+            CHECK(viewerPixel(viewer, 15, 15, 3) == 1.0f);
+            doc.removeNode(roto);
+            proxy->setCurrentText("Full");
+            CHECK(waitFor([&] { return !viewer.busy() && canvas->result().scale == 1.0; }));
+        }
+
         if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {
             doc.setParam(*doc.graph().find("Grade1"), "multiply", comp::Color{1.4, 1.1, 0.8, 1});
             doc.setParam(*doc.graph().find("Transform1"), "rotate", 12.0);

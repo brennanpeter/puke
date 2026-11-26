@@ -169,7 +169,9 @@ void noteProblem(const std::string& message);
 struct CallContext {
     const OfxNode* node = nullptr;
     double time = 0;
-    int flipY = 0;  // OFX y = flipY - comp y (see OfxNode.cpp)
+    int flipY = 0;  // OFX y = flipY - comp y (see OfxNode.cpp), in pixel coordinates
+    double scale = 1;        // render scale
+    int flipCanonical = 0;   // the same for canonical (full-size) coordinates
     std::vector<ImageInfo> inputInfos;  // per comp input; empty info if unconnected
     std::vector<bool> connected;
     ImageInfo outputInfo;
