@@ -149,4 +149,6 @@ comp loads OFX plugins from the directories in `$OFX_PLUGIN_PATH` and from
 
 ## License
 
-No license has been chosen yet.
+comp is released under the [MIT License](LICENSE). The OpenFX headers in
+`third_party/openfx/` keep their own license
+([third_party/openfx/LICENSE.txt](third_party/openfx/LICENSE.txt)).
