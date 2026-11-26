@@ -111,16 +111,21 @@ Key decisions:
   distances it reads (Read area-averages its file down), OFX plugins get
   the render scale with canonical/pixel conversions; the viewer's proxy
   menu (full, 1/2, 1/4, 1/8) draws the smaller picture at full size.
+- [x] **OFX overlays** (OFX 1.4 overlay interacts): the selected node's
+  plugin draws over the viewer with OpenGL (offscreen, composited; skipped
+  where no OpenGL context can be made) and gets pen and key events first;
+  values it sets are undoable edits.
 
 ## Next
 
 In planned order. Items further down are less settled.
 
-### 1. GUI, third milestone
-Left over from the second, each needing groundwork first:
-- **OFX overlays and custom parameter interacts**: OFX draws these with
-  OpenGL, so the viewer needs an OpenGL canvas and the host needs the
-  interact suite (pen and key events, redraw requests).
+### 1. GUI, fourth milestone
+- **OFX parameter interacts**: plugins' custom widgets for a parameter in
+  the properties panel (the same interact suite as overlays, drawn in a
+  small OpenGL area per parameter).
+- **OFX 1.5 Draw suite**: overlays drawn without OpenGL, for plugins that
+  use it (needs the OFX 1.5 headers).
 - Smaller: cancelling a render mid-frame (now it stops between files),
   caching frames ahead of playback in the background (now playback
   caches as it goes), and keeping cached frames when an edit doesn't
@@ -164,7 +169,8 @@ Smaller items already marked in the code:
   ThreadSanitizer reports remain inside Qt's own event posting (Qt isn't
   built with TSan); comp's data is race-free (`gui/`).
 - **OFX**: no access to other frames than the one rendering (nor to
-  parameter values at other times),
+  parameter values at other times), no parameter interacts, no Draw suite
+  (overlays need OpenGL), no viewport positions for pen events,
   Linux bundles only. Plugins' own multithreading runs on one thread
   (comp already renders tiles on every core). Parametric parameters
   (curves) aren't hosted. Plugins are never unloaded (`src/ofx/`).
