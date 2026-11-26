@@ -19,7 +19,8 @@
 #include <dlfcn.h>
 #endif
 
-#include "OfxInternal.h"  // first: the OFX headers below need ofxCore.h
+#include "OfxInternal.h"
+#include "ofxInteract.h"  // first: the OFX headers below need ofxCore.h
 
 #include "ofxMemory.h"
 #include "ofxMessage.h"
@@ -759,7 +760,8 @@ const void* fetchSuite(OfxPropertySetHandle, const char* name, int version) {
     if (n == kOfxMultiThreadSuite && version == 1) return &multiThreadSuite;
     if (n == kOfxMessageSuite && version == 1) return &messageSuiteV1;
     if (n == kOfxMessageSuite && version == 2) return &messageSuiteV2;
-    return nullptr;  // interacts, progress, timeline, parametric params...: not hosted
+    if (n == kOfxInteractSuite && version == 1) return interactSuite();
+    return nullptr;  // progress, timeline, parametric params...: not hosted
 }
 
 }  // namespace
@@ -775,7 +777,7 @@ OfxHost* host() {
         p.setInts(kOfxPropVersion, {0, 1, 0});
         p.setString(kOfxPropVersionLabel, 0, "0.1.0");
         p.setInt(kOfxImageEffectHostPropIsBackground, 0, 1);
-        p.setInt(kOfxImageEffectPropSupportsOverlays, 0, 0);
+        p.setInt(kOfxImageEffectPropSupportsOverlays, 0, 1);  // drawn with OpenGL by a GUI (Overlay)
         p.setInt(kOfxImageEffectPropSupportsMultiResolution, 0, 0);
         p.setInt(kOfxImageEffectPropSupportsTiles, 0, 1);
         p.setInt(kOfxImageEffectPropTemporalClipAccess, 0, 0);

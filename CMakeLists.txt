@@ -49,6 +49,7 @@ add_library(comp_core
     src/color/ColorConfig.cpp
     src/ofx/OfxHost.cpp
     src/ofx/OfxNode.cpp
+    src/ofx/Overlay.cpp
 )
 target_include_directories(comp_core PUBLIC include)
 # The Python module links comp_core into a shared library.
@@ -98,6 +99,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     endif()
     set(COMP_OFX_TEST_DIR ${CMAKE_CURRENT_BINARY_DIR}/ofx_test)
     add_library(comp_test_ofx_plugins MODULE tests/ofx/TestPlugins.cpp)
+    # The Point plugin's overlay draws with OpenGL, when there is one.
+    find_package(OpenGL QUIET)
+    if(OpenGL_FOUND)
+        target_link_libraries(comp_test_ofx_plugins PRIVATE OpenGL::GL)
+        target_compile_definitions(comp_test_ofx_plugins PRIVATE COMP_TEST_GL=1)
+    endif()
     target_include_directories(comp_test_ofx_plugins PRIVATE third_party/openfx/include)
     set_target_properties(comp_test_ofx_plugins PROPERTIES
         OUTPUT_NAME compTestPlugins PREFIX "" SUFFIX ".ofx"
@@ -111,14 +118,16 @@ endif()
 # The desktop GUI (comp_gui). Optional: needs Qt 6 Widgets.
 option(COMP_GUI "Build the GUI, if Qt 6 is available" ON)
 if(COMP_GUI)
-    find_package(Qt6 6.2 COMPONENTS Widgets QUIET)
-    if(Qt6_FOUND)
+    find_package(Qt6 6.2 COMPONENTS Widgets OpenGL QUIET)
+    find_package(OpenGL QUIET)  # OFX overlays draw with it
+    if(Qt6_FOUND AND OpenGL_FOUND)
         set(CMAKE_AUTOMOC ON)
         add_library(comp_gui_lib STATIC
             gui/CurveEditor.cpp
             gui/Document.cpp
             gui/MainWindow.cpp
             gui/NodeGraphView.cpp
+            gui/OverlayRenderer.cpp
             gui/ProjectSettingsDialog.cpp
             gui/PropertiesPanel.cpp
             gui/RenderDialog.cpp
@@ -126,7 +135,7 @@ if(COMP_GUI)
             gui/RotoTool.cpp
             gui/Timeline.cpp
             gui/Viewer.cpp)
-        target_link_libraries(comp_gui_lib PUBLIC comp_core Qt6::Widgets)
+        target_link_libraries(comp_gui_lib PUBLIC comp_core Qt6::Widgets Qt6::OpenGL OpenGL::GL)
         target_include_directories(comp_gui_lib PUBLIC gui)
         if(NOT MSVC)
             target_compile_options(comp_gui_lib PRIVATE -Wall -Wextra -Wpedantic)
@@ -140,9 +149,26 @@ if(COMP_GUI)
         add_test(NAME gui COMMAND test_gui WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
         set_tests_properties(gui PROPERTIES
             ENVIRONMENT "OCIO=;QT_QPA_PLATFORM=offscreen;OFX_PLUGIN_PATH=${COMP_OFX_TEST_DIR}")
+        # OFX overlays drawn with OpenGL: needs a display, so under xvfb-run
+        # where it's installed (exit code 77: skipped, no OpenGL).
+        if(TARGET comp_test_ofx_plugins)
+            add_executable(test_overlay_gl tests/test_overlay_gl.cpp)
+            target_link_libraries(test_overlay_gl PRIVATE comp_gui_lib)
+            target_include_directories(test_overlay_gl PRIVATE tests)
+            add_dependencies(test_overlay_gl comp_test_ofx_plugins)
+            find_program(XVFB_RUN xvfb-run)
+            if(XVFB_RUN)
+                add_test(NAME overlay_gl COMMAND ${XVFB_RUN} -a ${CMAKE_COMMAND} -E env QT_QPA_PLATFORM=xcb
+                         $<TARGET_FILE:test_overlay_gl>)
+            else()
+                add_test(NAME overlay_gl COMMAND test_overlay_gl)
+            endif()
+            set_tests_properties(overlay_gl PROPERTIES SKIP_RETURN_CODE 77
+                ENVIRONMENT "OCIO=;OFX_PLUGIN_PATH=${COMP_OFX_TEST_DIR}")
+        endif()
         message(STATUS "GUI: building comp_gui with Qt ${Qt6_VERSION}")
     else()
-        message(STATUS "GUI: skipped (needs Qt 6 Widgets)")
+        message(STATUS "GUI: skipped (needs Qt 6 Widgets and OpenGL, and OpenGL headers)")
     endif()
 endif()
 

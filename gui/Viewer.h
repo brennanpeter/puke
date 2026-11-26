@@ -4,6 +4,7 @@
 #include <QWidget>
 
 #include <condition_variable>
+#include <functional>
 #include <list>
 #include <map>
 #include <memory>
@@ -14,6 +15,8 @@
 
 #include "comp/core/Image.h"
 #include "comp/engine/Snapshot.h"
+#include "comp/ofx/Overlay.h"
+#include "OverlayRenderer.h"
 
 class QComboBox;
 class QToolButton;
@@ -104,6 +107,19 @@ public:
     // Takes mouse and key events first, and paints over the picture.
     void setTool(RotoTool* tool);
 
+    // An OFX overlay: drawn over the picture, given mouse and key events
+    // before anything else.
+    struct OverlayHooks {
+        comp::ofx::Overlay* overlay = nullptr;
+        std::function<comp::ofx::Overlay::View()> view;  // time, scale, format, flip; the canvas adds the rest
+        comp::ofx::Overlay::Edit edit;                   // a value the plugin set
+        std::function<void()> done;                      // a gesture ended: close its undo step
+    };
+    void setOverlay(OverlayHooks hooks);
+    // The OFX view for the overlay now (the hooks' view plus zoom and size).
+    comp::ofx::Overlay::View overlayView() const;
+    OverlayRenderer& overlayRenderer() { return overlayRenderer_; }
+
 signals:
     void viewChanged();  // zoom, pan or size changed
 
@@ -122,6 +138,9 @@ private:
     ViewResult result_;
     RotoTool* tool_ = nullptr;
     bool toolDragging_ = false;
+    OverlayHooks overlay_;
+    bool overlayDragging_ = false;
+    OverlayRenderer overlayRenderer_;
     QString message_;
     double zoom_ = 1;
     QPointF offset_;  // widget position of pixel (0, 0)
@@ -200,7 +219,11 @@ private:
     std::optional<ViewResult> ready_;
     std::unique_ptr<RenderWorker> worker_;
     QTimer* roiTimer_;
-    RotoTool* roto_;  // gathers zooming and panning into one render
+    RotoTool* roto_;
+    // The selected OFX node's overlay, if its plugin has one.
+    std::unique_ptr<comp::ofx::Overlay> overlay_;
+    bool overlayEditOpen_ = false;
+    void updateOverlay();  // gathers zooming and panning into one render
 };
 
 }  // namespace compgui

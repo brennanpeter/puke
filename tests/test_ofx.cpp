@@ -14,6 +14,7 @@
 #include "comp/graph/Graph.h"
 #include "comp/nodes/Registry.h"
 #include "comp/ofx/OfxHost.h"
+#include "comp/ofx/Overlay.h"
 #include "comp/project/Project.h"
 
 using namespace comp;
@@ -50,7 +51,8 @@ static void testDiscovery() {
     std::vector<std::string> ids;
     for (const auto& p : plugins) ids.push_back(p.identifier);
     for (const char* id : {"org.comp.test.ByteOnly", "org.comp.test.Coords", "org.comp.test.Gain", "org.comp.test.Generator",
-                           "org.comp.test.MaskMultiply", "org.comp.test.Shift", "org.comp.test.Transition"})
+                           "org.comp.test.MaskMultiply", "org.comp.test.Point", "org.comp.test.Shift",
+                           "org.comp.test.Transition"})
         CHECK(std::find(ids.begin(), ids.end(), id) != ids.end());
     CHECK(std::is_sorted(ids.begin(), ids.end()));
     for (const auto& p : plugins)
@@ -344,6 +346,59 @@ static void testRenderScale() {
     CHECK(img.pixel(5, 0)[1] == 5.0f && img.pixel(5, 0)[2] == 15.0f && img.pixel(5, 0)[3] == 32.0f);
 }
 
+// Overlays: pen and key events reach the plugin in canonical coordinates,
+// and values it sets go to the edit callback (or onto the node).
+static void testOverlay() {
+    Graph g;
+    auto& src = source(g);
+    Node& point = ofxNode(g, "org.comp.test.Point", "Point1");
+    g.connect(src, point, 0);
+    Node& gain = ofxNode(g, "org.comp.test.Gain", "Gain1");
+    CHECK(!ofx::Overlay::create(gain) && !ofx::Overlay::create(src));  // no overlay; not OFX
+    auto overlay = ofx::Overlay::create(point);
+    CHECK(overlay != nullptr);
+    if (!overlay) return;
+
+    ofx::Overlay::View view;
+    view.flipY = kFormat.y0 + kFormat.y1;  // 32: canonical y = 32 - comp y
+    view.time = 1;
+    // The point defaults to canonical (10, 10): comp (10, 22).
+    CHECK(!overlay->penDown(view, 30, 5));  // nowhere near: not the plugin's
+    CHECK(overlay->penDown(view, 11, 21));
+    std::vector<std::pair<std::string, ParamValue>> edits;
+    auto record = [&](const std::string& k, ParamValue v) { edits.emplace_back(k, std::move(v)); };
+    CHECK(overlay->penMotion(view, 25, 12, record));
+    CHECK(edits.size() == 1 && edits[0].first == "point" && (std::get<Vec2>(edits[0].second) == Vec2{25, 20}));
+    CHECK(!point.hasParam("point"));  // went to the callback, not the node
+    CHECK(overlay->takeRedrawRequest() && !overlay->takeRedrawRequest());
+    // Without a callback, onto the node.
+    CHECK(overlay->penMotion(view, 26, 12));
+    CHECK((std::get<Vec2>(point.params().at("point")) == Vec2{26, 20}));
+    CHECK(overlay->penUp(view, 26, 12));
+    CHECK(!overlay->penMotion(view, 30, 12));  // not dragging any more
+
+    // Keys: R resets.
+    CHECK(!overlay->keyDown(view, ofx::Overlay::Key::Character, "q"));
+    CHECK(overlay->keyDown(view, ofx::Overlay::Key::Character, "r"));
+    CHECK((std::get<Vec2>(point.params().at("point")) == Vec2{10, 10}));
+
+    // The plugin sees animated values at the view's time.
+    Curve c;
+    c.setKey(1, Vec2{0, 0}, Curve::Interp::Linear);
+    c.setKey(11, Vec2{20, 20}, Curve::Interp::Linear);
+    point.setCurve("point", c);
+    view.time = 6;  // (10, 10): comp (10, 22)
+    CHECK(overlay->penDown(view, 10, 22));
+    CHECK(overlay->penUp(view, 10, 22));
+    view.time = 11;
+    CHECK(!overlay->penDown(view, 10, 22));
+    CHECK(overlay->penDown(view, 20, 12));
+
+    // Canonical rectangles for the GL projection: y flipped.
+    const auto r = ofx::Overlay::canonicalRect(view, 0, 4, 40, 28);
+    CHECK(r[0] == 0 && r[1] == 4 && r[2] == 40 && r[3] == 28);
+}
+
 static void testCacheAndProjects() {
     Graph g;
     auto& src = source(g);
@@ -391,6 +446,7 @@ int main() {
         testMaskAndThreadSafety();
         testGenerator();
         testRenderScale();
+        testOverlay();
         testCacheAndProjects();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "unexpected exception: %s\n", e.what());

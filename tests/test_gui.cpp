@@ -955,6 +955,50 @@ int main(int argc, char** argv) {
             CHECK(waitFor([&] { return !viewer.busy() && canvas->result().scale == 1.0; }));
         }
 
+        // --- An OFX overlay: the selected node's plugin takes the mouse first.
+        {
+            QUndoStack& undo = doc.undoStack();
+            comp::Node& read1 = *doc.graph().find("Read1");
+            comp::Node& point = doc.createNode("ofx:org.comp.test.Point", {1500, 0}, &read1);
+            doc.setSelected(&point);
+            doc.setViewed(&point);
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            ViewerCanvas* canvas = viewer.canvas();
+            canvas->fit();
+            QApplication::processEvents();
+            const int steps = undo.index();
+            // The point defaults to canonical (10, 10): comp (10, 90 - 10).
+            auto mouse = [&](QEvent::Type t, QPointF image, Qt::MouseButtons held) {
+                const QPointF w = canvas->toWidget(image);
+                QMouseEvent e(t, w, canvas->mapToGlobal(w), Qt::LeftButton, held, Qt::NoModifier);
+                QApplication::sendEvent(canvas, &e);
+            };
+            mouse(QEvent::MouseButtonPress, {10, 80}, Qt::LeftButton);
+            mouse(QEvent::MouseMove, {20, 70}, Qt::LeftButton);
+            mouse(QEvent::MouseMove, {40, 50}, Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease, {40, 50}, Qt::NoButton);
+            CHECK(point.hasParam("point") && (std::get<comp::Vec2>(point.params().at("point")) == comp::Vec2{40, 40}));
+            CHECK(undo.index() == steps + 1);  // the whole drag, one step
+            // A key the plugin handles: R resets.
+            QKeyEvent r(QEvent::KeyPress, Qt::Key_R, Qt::NoModifier, "r");
+            QApplication::sendEvent(canvas, &r);
+            CHECK((std::get<comp::Vec2>(point.params().at("point")) == comp::Vec2{10, 10}) && undo.index() == steps + 2);
+            // A click away from the point isn't the plugin's.
+            mouse(QEvent::MouseButtonPress, {100, 20}, Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease, {100, 20}, Qt::NoButton);
+            CHECK(undo.index() == steps + 2);
+            undo.undo();
+            undo.undo();
+            CHECK(!point.hasParam("point"));
+            // Another node selected: no overlay.
+            doc.setSelected(&read1);
+            mouse(QEvent::MouseButtonPress, {10, 80}, Qt::LeftButton);
+            mouse(QEvent::MouseMove, {40, 50}, Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease, {40, 50}, Qt::NoButton);
+            CHECK(!point.hasParam("point"));
+            doc.removeNode(point);
+        }
+
         if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {
             doc.setParam(*doc.graph().find("Grade1"), "multiply", comp::Color{1.4, 1.1, 0.8, 1});
             doc.setParam(*doc.graph().find("Transform1"), "rotate", 12.0);
