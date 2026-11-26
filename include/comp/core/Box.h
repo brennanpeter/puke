@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 
 namespace comp {
 
@@ -33,6 +34,15 @@ struct Box {
     }
 
     constexpr Box padded(int p) const { return {x0 - p, y0 - p, x1 + p, y1 + p}; }
+
+    // The pixels covering this box at `scale` times the size (rounded out),
+    // e.g. at a proxy scale. scaled(1) is the box itself.
+    Box scaled(double scale) const {
+        if (scale == 1 || empty()) return *this;
+        auto lo = [&](int v) { return static_cast<int>(std::floor(v * scale + 1e-9)); };
+        auto hi = [&](int v) { return static_cast<int>(std::ceil(v * scale - 1e-9)); };
+        return {lo(x0), lo(y0), hi(x1), hi(y1)};
+    }
 
     friend constexpr bool operator==(const Box&, const Box&) = default;
 };

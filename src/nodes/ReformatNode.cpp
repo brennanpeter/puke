@@ -22,13 +22,13 @@ std::vector<ParamSpec> ReformatNode::paramSpecs() const {
 
 Box ReformatNode::frame(const RenderContext& ctx) const {
     const std::string format = param<std::string>("format", "project");
-    if (format == "project") return ctx.format.box();
+    if (format == "project") return ctx.frameBox();
     if (format != "custom") throw Error(name() + ": unknown format '" + format + "' (use project or custom)");
     const Vec2 size = vec2Param("size", Vec2{1920, 1080});
     for (double v : size)
         if (!(v >= 1 && v <= 65536 && v == std::floor(v)))
             throw Error(name() + ": size must be whole numbers from 1 to 65536");
-    return {0, 0, static_cast<int>(size[0]), static_cast<int>(size[1])};
+    return Box{0, 0, static_cast<int>(size[0]), static_cast<int>(size[1])}.scaled(ctx.scale);
 }
 
 Affine ReformatNode::matrix(const Box& in, const Box& out) const {

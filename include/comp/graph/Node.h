@@ -27,6 +27,15 @@ struct RenderContext {
     // The project's format: what generators (nodes with nothing to read
     // their size from) produce. Callers fill it from Graph::settings().
     Format format;
+    // Proxy rendering: images are this many times full size (0.5: half).
+    // Every pixel coordinate (windows, regions) is at this scale, while
+    // parameters stay in full-size units: nodes scale the distances they
+    // read (a Transform's translate, a Blur's size) by it. Like OFX's render
+    // scale. In (0, 1].
+    double scale = 1.0;
+
+    // The format's box at this scale.
+    Box frameBox() const { return format.box().scaled(scale); }
 };
 
 // Describes one parameter of a node type, for user interfaces (a properties

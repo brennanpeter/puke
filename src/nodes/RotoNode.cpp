@@ -104,7 +104,7 @@ const ChannelList kRGBA{"R", "G", "B", "A"};
 ImageInfo RotoNode::computeInfo(const RenderContext& ctx, std::span<const ImageInfo* const> inputs) const {
     const ImageInfo* bg = inputs.empty() ? nullptr : inputs[0];
     ImageInfo info;
-    info.displayWindow = bg ? bg->displayWindow : ctx.format.box();
+    info.displayWindow = bg ? bg->displayWindow : ctx.frameBox();
     info.channels = kRGBA;
     if (bg)
         for (const auto& c : bg->channels)
@@ -115,14 +115,14 @@ ImageInfo RotoNode::computeInfo(const RenderContext& ctx, std::span<const ImageI
     if (output != "alpha" && output != "rgba")
         throw Error(name() + ": output must be alpha or rgba, not '" + output + "'");
     const Path p = shape();
-    const int pad = static_cast<int>(std::ceil(std::max(0.0, numberParam("feather", 0.0)))) + 1;
-    Box matte = p.empty() ? Box{} : p.bounds().padded(pad);
+    const int pad = static_cast<int>(std::ceil(std::max(0.0, numberParam("feather", 0.0) * ctx.scale))) + 1;
+    Box matte = p.empty() ? Box{} : p.bounds().scaled(ctx.scale).padded(pad);
     if (param<bool>("invert", false)) matte = info.displayWindow;  // everything outside the shape too
     info.dataWindow = matte.unite(bg ? bg->dataWindow : Box{});
     return info;
 }
 
-Image RotoNode::compute(const RenderContext&, const Box& region, std::span<const Image* const> inputs) const {
+Image RotoNode::compute(const RenderContext& ctx, const Box& region, std::span<const Image* const> inputs) const {
     const Image* bg = inputs.empty() ? nullptr : inputs[0];
     ChannelList channels = kRGBA;
     if (bg)
@@ -130,7 +130,11 @@ Image RotoNode::compute(const RenderContext&, const Box& region, std::span<const
             if (std::find(channels.begin(), channels.end(), c) == channels.end()) channels.push_back(c);
     Image out(region, channels);
 
-    std::vector<float> m = rasterize(shape().polygons(), numberParam("feather", 0.0), region);
+    // A proxy render scales the shape and feather (full-size pixels) down.
+    auto polys = shape().polygons(1 / ctx.scale);
+    for (auto& poly : polys)
+        for (auto& pt : poly) pt = {pt[0] * ctx.scale, pt[1] * ctx.scale};
+    std::vector<float> m = rasterize(polys, numberParam("feather", 0.0) * ctx.scale, region);
     const float opacity = static_cast<float>(numberParam("opacity", 1.0));
     const bool invert = param<bool>("invert", false);
     for (float& v : m) v = opacity * (invert ? 1 - v : v);

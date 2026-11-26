@@ -158,7 +158,9 @@ std::string reprChannels(const comp::ChannelList& c) {
 }
 
 // A render at `frame` of a node in `graph`, in the graph's project format.
-comp::RenderContext context(const Graph& graph, double frame) { return comp::RenderContext{frame, graph.settings().format}; }
+comp::RenderContext context(const Graph& graph, double frame, double scale = 1.0) {
+    return comp::RenderContext{frame, graph.settings().format, scale};
+}
 
 // What Python's Engine wraps: an engine plus a lock, because renders run
 // without the GIL and an Engine renders one thing at a time.
@@ -300,25 +302,26 @@ may keep editing it. One Engine renders one thing at a time.)")
         .def_property_readonly("last_stats", [](const PyEngine& e) { return e.engine.lastStats(); })
         .def(
             "info",
-            [](PyEngine& e, const NodeRef& n, double frame) {
+            [](PyEngine& e, const NodeRef& n, double frame, double scale) {
                 const auto snap = comp::Snapshot::of(n.get());  // with the GIL: nothing edits meanwhile
-                const auto ctx = context(*n.graph, frame);
+                const auto ctx = context(*n.graph, frame, scale);
                 py::gil_scoped_release nogil;
                 std::lock_guard lock(e.mutex);
                 return e.engine.info(snap, ctx);
             },
-            "node"_a, "frame"_a = 1.0)
+            "node"_a, "frame"_a = 1.0, "scale"_a = 1.0)
         .def(
             "render",
-            [](PyEngine& e, const NodeRef& n, std::optional<Box> region, double frame) {
+            [](PyEngine& e, const NodeRef& n, std::optional<Box> region, double frame, double scale) {
                 const auto snap = comp::Snapshot::of(n.get());
-                const auto ctx = context(*n.graph, frame);
+                const auto ctx = context(*n.graph, frame, scale);
                 py::gil_scoped_release nogil;
                 std::lock_guard lock(e.mutex);
                 return e.engine.render(snap, ctx, region ? *region : e.engine.info(snap, ctx).dataWindow);
             },
-            "node"_a, "region"_a = py::none(), "frame"_a = 1.0,
-            "Renders `region` (default: the node's data window). Pixels outside the data window are zero.");
+            "node"_a, "region"_a = py::none(), "frame"_a = 1.0, "scale"_a = 1.0,
+            "Renders `region` (default: the node's data window). Pixels outside the data window are zero. "
+            "scale < 1 renders a proxy: images that many times full size (regions in those pixels).");
 
     // ------------------------------------------------------------ Node
 

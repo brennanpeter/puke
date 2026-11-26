@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -265,10 +266,15 @@ OfxStatus shiftMain(const char* action, const void* handle, OfxPropertySetHandle
         Img src, dst;
         if (!dst.fetch(e, kOfxImageEffectOutputClipName, t) || !src.fetch(e, kOfxImageEffectSimpleSourceClipName, t))
             return fail(e, "missing image");
+        // The shift is in canonical (full-size) pixels; images are at the
+        // render scale.
+        double scale[2] = {1, 1};
+        gProp->propGetDoubleN(in, kOfxImageEffectPropRenderScale, 2, scale);
+        const int px = static_cast<int>(std::lround(dx * scale[0])), py = static_cast<int>(std::lround(dy * scale[1]));
         for (int y = w.y1; y < w.y2; ++y)
             for (int x = w.x1; x < w.x2; ++x) {
                 float* d = dst.at(x, y);
-                const int sx = x - dx, sy = y - dy;
+                const int sx = x - px, sy = y - py;
                 if (src.inside(sx, sy)) std::memcpy(d, src.at(sx, sy), 4 * sizeof(float));
                 else std::memset(d, 0, 4 * sizeof(float));
             }

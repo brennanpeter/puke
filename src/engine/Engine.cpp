@@ -80,7 +80,7 @@ std::vector<std::uint64_t> computeHashes(const Snapshot& snap, const RenderConte
         const Entry& e = entries[i];
         Hasher h;
         h.add(e.node->id()).add(std::string_view(e.node->typeName())).add(ctx.frame);
-        h.add(ctx.format.width).add(ctx.format.height);
+        h.add(ctx.format.width).add(ctx.format.height).add(ctx.scale);
         h.add(e.params->size());
         for (const auto& [key, value] : *e.params) {  // std::map: sorted, so order is stable
             h.add(std::string_view(key));
@@ -138,7 +138,15 @@ std::size_t Engine::cacheBytesUsed() const { return cache_ ? cache_->bytesUsed()
 
 ImageInfo Engine::info(const Node& output, const RenderContext& ctx) { return info(Snapshot::of(output), ctx); }
 
+namespace {
+void checkScale(const RenderContext& ctx) {
+    if (!(ctx.scale > 0 && ctx.scale <= 1))
+        throw Error("render scale must be more than 0 and at most 1, not " + std::to_string(ctx.scale));
+}
+}  // namespace
+
 ImageInfo Engine::info(const Snapshot& snapshot, const RenderContext& ctx) {
+    checkScale(ctx);
     return computeInfos(snapshot.at(ctx.frame), ctx).back();
 }
 
@@ -147,6 +155,7 @@ Image Engine::render(const Node& output, const RenderContext& ctx, const Box& re
 }
 
 Image Engine::render(const Snapshot& animated, const RenderContext& ctx, const Box& region) {
+    checkScale(ctx);
     const Snapshot snap = animated.at(ctx.frame);  // parameters as they are at this frame
     stats_ = {};
     const auto& entries = snap.entries();
