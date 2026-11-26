@@ -21,7 +21,10 @@ namespace fs = std::filesystem;
 
 static fs::path g_dir;
 
-static bool close(float a, float b, float tol = 1e-5f) { return std::fabs(a - b) <= tol; }
+// OCIO built with SSE (its default from source; Ubuntu's package isn't)
+// uses a fast pow() that's off by up to about 3e-5: white through the sRGB
+// curve comes out as 1.000024. Real mistakes are far bigger than 1e-4.
+static bool close(float a, float b, float tol = 1e-4f) { return std::fabs(a - b) <= tol; }
 
 // One RGBA pixel converted with the built-in config.
 static std::array<float, 4> convertPixel(const std::string& from, const std::string& to, float r, float g, float b,
