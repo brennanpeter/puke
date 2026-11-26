@@ -86,18 +86,18 @@ MainWindow::MainWindow() {
 
     // --- File
     QMenu* file = menuBar()->addMenu("&File");
-    file->addAction("&New", QKeySequence::New, this, [this] {
+    file->addAction("&New", this, [this] {
         if (maybeSave()) doc_->newDocument();
-    });
-    file->addAction("&Open...", QKeySequence::Open, this, [this] {
+    })->setShortcut(QKeySequence::New);
+    file->addAction("&Open...", this, [this] {
         if (!maybeSave()) return;
         const QString path = QFileDialog::getOpenFileName(this, "Open project", {}, "puke projects (*.puke);;All files (*)");
         if (!path.isEmpty()) openProject(path);
-    });
-    file->addAction("&Save", QKeySequence::Save, this, [this] { save(); });
-    file->addAction("Save &As...", QKeySequence::SaveAs, this, [this] { saveAs(); });
+    })->setShortcut(QKeySequence::Open);
+    file->addAction("&Save", this, [this] { save(); })->setShortcut(QKeySequence::Save);
+    file->addAction("Save &As...", this, [this] { saveAs(); })->setShortcut(QKeySequence::SaveAs);
     file->addSeparator();
-    file->addAction("&Quit", QKeySequence::Quit, this, &QWidget::close);
+    file->addAction("&Quit", this, &QWidget::close)->setShortcut(QKeySequence::Quit);
 
     // --- Edit
     QMenu* edit = menuBar()->addMenu("&Edit");
@@ -127,7 +127,7 @@ MainWindow::MainWindow() {
     });
     edit->addSeparator();
     edit->addAction("&Rename... (F2)", this, [this] { graph_->renameSelected(); });
-    edit->addAction("&Delete nodes", QKeySequence::Delete, this, [this] { doc_->removeNodes(graph_->selectedNodes()); });
+    edit->addAction("&Delete nodes", this, [this] { doc_->removeNodes(graph_->selectedNodes()); })->setShortcut(QKeySequence::Delete);
 
     // --- Nodes: built-ins, then OFX plugins in a submenu
     QMenu* nodes = menuBar()->addMenu("&Nodes");
@@ -153,7 +153,7 @@ MainWindow::MainWindow() {
     // --- Render
     render_ = new RenderDialog(*doc_, this);
     QMenu* renderMenu = menuBar()->addMenu("&Render");
-    renderMenu->addAction("&Render...", QKeySequence(Qt::Key_F7), this, &MainWindow::showRenderDialog);
+    renderMenu->addAction("&Render...", this, &MainWindow::showRenderDialog)->setShortcut(QKeySequence(Qt::Key_F7));
 
     // --- View
     QMenu* view = menuBar()->addMenu("&View");
