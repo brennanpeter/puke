@@ -150,6 +150,11 @@ ImageInfo Engine::info(const Snapshot& snapshot, const RenderContext& ctx) {
     return computeInfos(snapshot.at(ctx.frame), ctx).back();
 }
 
+std::uint64_t Engine::renderKey(const Snapshot& snapshot, const RenderContext& ctx) {
+    checkScale(ctx);
+    return computeHashes(snapshot.at(ctx.frame), ctx).back();
+}
+
 Image Engine::render(const Node& output, const RenderContext& ctx, const Box& region) {
     return render(Snapshot::of(output), ctx, region);
 }

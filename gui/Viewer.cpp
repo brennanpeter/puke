@@ -79,7 +79,7 @@ RenderWorker::~RenderWorker() {
 void RenderWorker::request(ViewRequest r) {
     {
         std::lock_guard lock(mutex_);
-        pending_ = std::move(r);  // replaces anything not started yet
+        (r.background ? pendingBackground_ : pending_) = std::move(r);  // replaces one not started yet
     }
     wake_.notify_one();
 }
@@ -90,14 +90,17 @@ void RenderWorker::run() {
         ViewRequest req;
         {
             std::unique_lock lock(mutex_);
-            wake_.wait(lock, [this] { return stopping_ || pending_; });
+            wake_.wait(lock, [this] { return stopping_ || pending_ || pendingBackground_; });
             if (stopping_) return;
-            req = std::move(*pending_);
-            pending_.reset();
+            auto& next = pending_ ? pending_ : pendingBackground_;  // the screen first
+            req = std::move(*next);
+            next.reset();
         }
         ViewResult res;
         res.serial = req.serial;
         res.frame = req.frame;
+        res.background = req.background;
+        res.key = req.key;
         QElapsedTimer timer;
         timer.start();
         try {
@@ -466,9 +469,12 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     connect(proxy_, &QComboBox::currentIndexChanged, this, &Viewer::requestRender);
     connect(&doc_, &Document::frameChanged, this, &Viewer::showFrame);
     // A new project format changes what generators make; range and fps don't.
-    connect(&doc_, &Document::settingsChanged, this, [this] {
-        if (doc_.settings().format != format_) requestRender();
-    });
+    // (and a new range has new frames to cache ahead). Frames whose key
+    // didn't change stay cached.
+    connect(&doc_, &Document::settingsChanged, this, &Viewer::requestRender);
+    aheadTimer_ = new QTimer(this);
+    aheadTimer_->setSingleShot(true);
+    connect(aheadTimer_, &QTimer::timeout, this, &Viewer::fillAhead);
     roiTimer_ = new QTimer(this);
     roiTimer_->setSingleShot(true);
     roiTimer_->setInterval(30);
@@ -481,7 +487,7 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
         // On the worker thread: leave the result, and nudge the GUI thread.
         {
             std::lock_guard lock(readyMutex_);
-            ready_ = std::move(r);
+            ready_.push_back(std::move(r));
         }
         QMetaObject::invokeMethod(this, &Viewer::takeReady, Qt::QueuedConnection);
     });
@@ -552,8 +558,104 @@ void Viewer::updateOverlay() {
 }
 
 void Viewer::requestRender() {
-    clearCache();
-    render();
+    refreshKeys();
+    if (cacheAhead_) aheadTimer_->start(150);  // let a drag's next edit come first
+    showFrame();
+}
+
+void Viewer::refreshKeys() {
+    comp::Node* node = doc_.viewed();
+    title_->setText(node ? QString("<b>%1</b>").arg(QString::fromStdString(node->name())) : QString());
+    format_ = doc_.settings().format;
+    scale_ = proxy_->currentData().toDouble();
+    comp::Hasher h;
+    h.add(std::string_view(display_->currentText().toStdString()))
+        .add(std::string_view(view_->currentText().toStdString()))
+        .add(exposure_->value())
+        .add(channel_->currentIndex());
+    try {
+        h.add(comp::ColorConfig::current()->hash());
+    } catch (const comp::Error&) {
+    }
+    settingsKey_ = h.value();
+    current_.reset();
+    snapshotError_.clear();
+    if (node) {
+        try {
+            current_ = std::make_shared<comp::Snapshot>(comp::Snapshot::of(*node));  // here, on the GUI thread
+        } catch (const comp::Error& e) {
+            snapshotError_ = QString::fromStdString(e.what());
+        }
+    }
+    bool dropped = false;
+    for (auto it = cache_.begin(); it != cache_.end();) {
+        if (it->second.result.key == keyFor(it->first)) {
+            ++it;
+            continue;
+        }
+        cacheBytes_ -= it->second.bytes;
+        lru_.erase(it->second.lru);
+        it = cache_.erase(it);
+        dropped = true;
+    }
+    std::erase_if(failed_, [this](const auto& f) { return f.second != keyFor(f.first); });
+    if (dropped) emit cacheChanged();
+}
+
+std::uint64_t Viewer::keyFor(int frame) const {
+    if (!current_) return 0;
+    try {
+        comp::Hasher h;
+        h.add(comp::Engine::renderKey(*current_, {double(frame), format_, scale_})).add(settingsKey_);
+        return std::max<std::uint64_t>(h.value(), 1);
+    } catch (const std::exception&) {
+        return 0;  // rendering it will report the error
+    }
+}
+
+ViewRequest Viewer::makeRequest(int frame) const {
+    ViewRequest req;
+    req.snapshot = current_;
+    req.frame = frame;
+    req.format = format_;
+    req.visible = canvas_->visibleRegion();
+    req.scale = scale_;
+    req.display = display_->currentText().toStdString();
+    req.view = view_->currentText().toStdString();
+    req.exposure = exposure_->value();
+    req.channel = channel_->currentIndex();
+    req.key = keyFor(frame);
+    return req;
+}
+
+void Viewer::setCacheAhead(bool on) {
+    if (on == cacheAhead_) return;
+    cacheAhead_ = on;
+    emit cacheAheadChanged(on);
+    if (on) aheadTimer_->start(0);
+    else aheadTimer_->stop();
+}
+
+void Viewer::fillAhead() {
+    if (!cacheAhead_ || backgroundFrame_ || busy() || !current_) return;
+    if (lastBytes_ > 0 && cacheBytes_ + lastBytes_ > cacheLimit_) return;  // full: don't push out what's there
+    const comp::ProjectSettings& s = doc_.settings();
+    const int n = s.lastFrame - s.firstFrame + 1;
+    if (n <= 0) return;
+    // From the frame after the current one, through the range, wrapping.
+    const int from = doc_.frame() - s.firstFrame;
+    for (int i = 1; i <= n; ++i) {
+        const int frame = s.firstFrame + ((from + i) % n + n) % n;
+        if (auto it = cache_.find(frame); it != cache_.end() && covers(it->second.result)) continue;
+        if (auto it = failed_.find(frame); it != failed_.end() && it->second == keyFor(frame)) continue;
+        ViewRequest req = makeRequest(frame);
+        if (req.key == 0) continue;
+        req.background = true;
+        backgroundFrame_ = frame;
+        ++backgroundRequests_;
+        worker_->request(std::move(req));
+        return;
+    }
 }
 
 bool Viewer::covers(const ViewResult& r) const {
@@ -581,56 +683,54 @@ void Viewer::showFrame() {
     lru_.splice(lru_.end(), lru_, it->second.lru);
     canvas_->setResult(it->second.result);
     emit renderFinished(true);
+    if (cacheAhead_ && !aheadTimer_->isActive()) aheadTimer_->start(0);
 }
 
 void Viewer::render() {
-    comp::Node* node = doc_.viewed();
-    title_->setText(node ? QString("<b>%1</b>").arg(QString::fromStdString(node->name())) : QString());
     ++serial_;
-    if (!node) {
+    if (!doc_.viewed()) {
         shown_ = serial_;
         canvas_->setResult(ViewResult{});
         canvas_->setMessage("Nothing to view.\nSelect a node and press 1, or double-click it.");
         emit renderFinished(false);
         return;
     }
-    ViewRequest req;
-    try {
-        req.snapshot = std::make_shared<comp::Snapshot>(comp::Snapshot::of(*node));  // here, on the GUI thread
-    } catch (const comp::Error& e) {
+    if (!current_) {
         ViewResult r;
         r.serial = serial_;
-        r.error = QString::fromStdString(e.what());
+        r.error = snapshotError_;
         deliver(std::move(r));
         return;
     }
-    req.frame = doc_.frame();
-    req.format = format_ = doc_.settings().format;
-    req.visible = canvas_->visibleRegion();
-    req.scale = proxy_->currentData().toDouble();
-    req.display = display_->currentText().toStdString();
-    req.view = view_->currentText().toStdString();
-    req.exposure = exposure_->value();
-    req.channel = channel_->currentIndex();
+    ViewRequest req = makeRequest(doc_.frame());
     req.serial = serial_;
     worker_->request(std::move(req));
 }
 
 void Viewer::takeReady() {
-    std::optional<ViewResult> r;
+    std::deque<ViewResult> results;
     {
         std::lock_guard lock(readyMutex_);
-        r.swap(ready_);
+        results.swap(ready_);
     }
-    if (r) deliver(std::move(*r));
+    for (auto& r : results) deliver(std::move(r));
 }
 
 void Viewer::deliver(ViewResult r) {
+    if (r.background) {
+        backgroundFrame_.reset();
+        const int frame = static_cast<int>(r.frame);
+        if (r.key != keyFor(frame)) return;  // edited meanwhile: the timer will try again
+        if (!r.error.isEmpty()) failed_[frame] = r.key;
+        else addToCache(r);
+        if (cacheAhead_ && !aheadTimer_->isActive()) aheadTimer_->start(0);
+        return;
+    }
     if (r.serial != serial_) return;  // something newer is on its way
     shown_ = serial_;
     const bool ok = r.error.isEmpty();
     if (ok) {
-        addToCache(r);
+        if (r.key) addToCache(r);
         canvas_->setResult(r);
     } else {
         ViewResult keep = canvas_->result();  // keep showing the last good picture under the error
@@ -638,6 +738,7 @@ void Viewer::deliver(ViewResult r) {
         canvas_->setResult(keep);
     }
     emit renderFinished(ok);
+    if (cacheAhead_ && !aheadTimer_->isActive()) aheadTimer_->start(0);
 }
 
 // --- frame cache
@@ -654,6 +755,7 @@ void Viewer::setCacheLimit(std::size_t bytes) {
 }
 
 void Viewer::clearCache() {
+    failed_.clear();
     if (cache_.empty()) return;
     cache_.clear();
     lru_.clear();
@@ -681,6 +783,8 @@ void Viewer::addToCache(const ViewResult& r) {
     lru_.push_back(frame);
     cache_[frame] = Cached{r, bytes, std::prev(lru_.end())};
     cacheBytes_ += bytes;
+    lastBytes_ = bytes;
+    failed_.erase(frame);
     emit cacheChanged();
 }
 

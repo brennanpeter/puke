@@ -121,6 +121,10 @@ int main(int argc, char** argv) {
     w.show();
     Document& doc = w.document();
     Viewer& viewer = w.viewer();
+    // Off for the checks that count renders or cached frames; its own
+    // section below turns it on.
+    CHECK(viewer.cacheAhead());
+    viewer.setCacheAhead(false);
     QApplication::processEvents();
 
     try {
@@ -422,9 +426,10 @@ int main(int argc, char** argv) {
             tl.step(-1);
             CHECK(doc.frame() == 1003);
 
-            // Any edit empties the cache.
+            // An edit drops the frames it changes, and only those.
             comp::Node& g = doc.createNode("Grade", {400, 90}, &seq);
-            doc.setViewed(&g);
+            CHECK((viewer.cachedFrames() == std::vector<int>{1001, 1002, 1003}));  // not upstream of the viewed Read
+            doc.setViewed(&g);  // a different node: different pictures
             CHECK(viewer.cachedFrames().empty());
             CHECK(waitFor([&] { return !viewer.busy(); }));
             CHECK((viewer.cachedFrames() == std::vector<int>{1003}));
@@ -432,6 +437,78 @@ int main(int argc, char** argv) {
             CHECK(viewer.cachedFrames().empty());
             CHECK(waitFor([&] { return !viewer.busy(); }));
             CHECK(std::fabs(viewerPixel(viewer, 5, 5, 0) - 0.6f) < 1e-6f);
+            for (int f : {1001, 1002}) {
+                doc.setFrame(f);
+                CHECK(waitFor([&] { return !viewer.busy(); }));
+            }
+            // A node off to the side, and edits to it: the cache stays, and
+            // the current frame shows without a render.
+            comp::Node& side = doc.createNode("Grade", {600, 90}, &seq);
+            doc.setParam(side, "multiply", 5.0);
+            CHECK(!viewer.busy() && (viewer.cachedFrames() == std::vector<int>{1001, 1002, 1003}));
+            // Animating it: a key at 1002 with the same value changes no
+            // frame; a second key at 1003 changes 1003 only (frames before
+            // the first key hold its value).
+            doc.setKey(g, "multiply", 2.0);  // at 1002
+            CHECK(!viewer.busy() && (viewer.cachedFrames() == std::vector<int>{1001, 1002, 1003}));
+            doc.setFrame(1003);
+            CHECK(!viewer.busy());
+            doc.setKey(g, "multiply", 3.0);
+            CHECK((viewer.cachedFrames() == std::vector<int>{1001, 1002}));
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            CHECK(std::fabs(viewerPixel(viewer, 5, 5, 0) - 0.9f) < 1e-6f);
+            undo.undo();          // the keys
+            undo.undo();
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            CHECK((viewer.cachedFrames() == std::vector<int>{1001, 1002, 1003}));
+            doc.removeNode(side);
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            // A display setting is part of every frame's key.
+            auto* exposure = find<QDoubleSpinBox>(viewer, "viewerExposure");
+            CHECK(exposure);
+            if (exposure) {
+                exposure->setValue(1);
+                CHECK((viewer.cachedFrames().size() <= 1));  // only what was rendered since
+                CHECK(waitFor([&] { return !viewer.busy(); }));
+                exposure->setValue(0);
+                CHECK(waitFor([&] { return !viewer.busy(); }));
+            }
+
+            // Caching ahead fills the range in the background, from the
+            // current frame on, without changing what's shown.
+            doc.setFrame(1001);
+            CHECK(waitFor([&] { return !viewer.busy(); }));
+            const float shownPixel = viewerPixel(viewer, 5, 5, 0);
+            auto* ahead = find<QToolButton>(tl, "timelineCacheAhead");
+            CHECK(ahead && ahead->isCheckable() && !ahead->isChecked());
+            if (ahead) ahead->click();
+            CHECK(viewer.cacheAhead());
+            CHECK(waitFor([&] { return viewer.cachedFrames().size() == 3 && !viewer.cachingAhead(); }));
+            CHECK(doc.frame() == 1001 && viewerPixel(viewer, 5, 5, 0) == shownPixel);
+            // A cached-ahead frame shows at once, with its own pixels.
+            doc.setFrame(1003);
+            CHECK(!viewer.busy() && std::fabs(viewerPixel(viewer, 5, 5, 0) - 0.6f) < 1e-6f);
+            // After an edit it fills again.
+            doc.setParam(g, "multiply", 1.0);
+            CHECK(waitFor([&] { return viewer.cachedFrames().size() == 3 && !viewer.cachingAhead() && !viewer.busy(); }));
+            doc.setFrame(1002);
+            CHECK(!viewer.busy() && std::fabs(viewerPixel(viewer, 5, 5, 0) - 0.2f) < 1e-6f);
+            // A frame that fails isn't tried again and again.
+            comp::ProjectSettings wide = doc.settings();
+            wide.lastFrame = 1005;  // seq.1004 and 1005 don't exist
+            doc.setSettings(wide);
+            const int asked = viewer.backgroundRequests();
+            runEventsFor(1000);
+            CHECK(!viewer.cachingAhead() && (viewer.cachedFrames() == std::vector<int>{1001, 1002, 1003}));
+            CHECK(viewer.backgroundRequests() == asked + 2);  // 1004 and 1005, once each
+            runEventsFor(300);
+            CHECK(viewer.backgroundRequests() == asked + 2);
+            undo.undo();
+            ahead->click();
+            CHECK(!viewer.cacheAhead());
+            doc.setParam(g, "multiply", 2.0);
+            doc.setFrame(1003);
+            CHECK(waitFor([&] { return !viewer.busy(); }));
 
             // A tiny cache limit keeps only the most recent frames.
             viewer.setCacheLimit(2 * 160 * 90 * (4 + 4 * sizeof(float)) + 1000);  // about two frames
@@ -563,9 +640,10 @@ int main(int argc, char** argv) {
             canvas->centerOn({800, 450});
             runEventsFor(100);
             CHECK(renders == 0);
-            // But the next render (an edit, another frame) does only what's
-            // on screen, plus a margin.
-            viewer.requestRender();
+            // But the next render (here another frame: an edit that didn't
+            // change the picture would show the cached one) does only
+            // what's on screen, plus a margin.
+            doc.setFrame(doc.frame() + 1);
             CHECK(waitFor([&] { return renders > 0 && !viewer.busy(); }));
             auto visible = canvas->visibleRegion();
             CHECK(visible && visible->width() < 1600);
