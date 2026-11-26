@@ -1,10 +1,10 @@
-#include "comp/nodes/WriteNode.h"
+#include "puke/nodes/WriteNode.h"
 
-#include "comp/engine/Snapshot.h"
+#include "puke/engine/Snapshot.h"
 
 #include "Specs.h"
 
-#include "comp/color/ColorConfig.h"
+#include "puke/color/ColorConfig.h"
 
 #include <cmath>
 #include <filesystem>
@@ -13,9 +13,9 @@
 
 #include <OpenImageIO/imageio.h>
 
-#include "comp/core/FramePattern.h"
+#include "puke/core/FramePattern.h"
 
-namespace comp {
+namespace puke {
 namespace {
 
 namespace OIIO = OIIO_NAMESPACE;
@@ -74,7 +74,7 @@ std::string WriteNode::execute(Engine& engine, const Snapshot& snapshot, const R
     spec.channelnames.assign(img.channels().begin(), img.channels().end());
     spec.alpha_channel = alphaIndex(img.channels());
     if (hasParam("compression")) spec.attribute("compression", param<std::string>("compression"));
-    spec.attribute("Software", "comp");
+    spec.attribute("Software", "puke");
 
     // Choose the format plugin from the final path's extension, but write
     // to a temporary name and rename once the file is complete.
@@ -142,4 +142,4 @@ std::vector<ParamSpec> WriteNode::paramSpecs() const {
     };
 }
 
-}  // namespace comp
+}  // namespace puke

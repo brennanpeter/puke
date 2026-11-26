@@ -1,6 +1,6 @@
-#include "comp/nodes/PremultNode.h"
+#include "puke/nodes/PremultNode.h"
 
-namespace comp {
+namespace puke {
 
 Image PremultNode::compute(const RenderContext&, const Box& region, std::span<const Image* const> inputs) const {
     Image out = cropped(*inputs[0], region);
@@ -26,4 +26,4 @@ Image PremultNode::compute(const RenderContext&, const Box& region, std::span<co
     return out;
 }
 
-}  // namespace comp
+}  // namespace puke

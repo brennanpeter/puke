@@ -7,10 +7,10 @@
 #include <cmath>
 #include <vector>
 
-#include "comp/core/Affine.h"
-#include "comp/graph/Node.h"
+#include "puke/core/Affine.h"
+#include "puke/graph/Node.h"
 
-namespace comp::resample {
+namespace puke::resample {
 
 enum class Filter { Nearest, Bilinear, Cubic };
 
@@ -121,4 +121,4 @@ inline Image apply(const Image& src, const Box& region, const Affine& m, Filter 
     return out;
 }
 
-}  // namespace comp::resample
+}  // namespace puke::resample

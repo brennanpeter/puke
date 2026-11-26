@@ -11,7 +11,7 @@
 // folder; compare with `idiff golden_failures/NAME.exr tests/golden/NAME.exr`.
 //
 // References are float EXRs read and written with OpenImageIO directly, so a
-// bug in comp's own Read or Write can't hide itself.
+// bug in puke's own Read or Write can't hide itself.
 
 #include <cmath>
 #include <cstring>
@@ -24,18 +24,18 @@
 #include <OpenImageIO/imageio.h>
 
 #include "TestUtil.h"
-#include "comp/engine/Engine.h"
-#include "comp/graph/Graph.h"
-#include "comp/nodes/ColorSpaceNode.h"
-#include "comp/nodes/GradeNode.h"
-#include "comp/nodes/MergeNode.h"
-#include "comp/nodes/ReadNode.h"
-#include "comp/nodes/Registry.h"
-#include "comp/nodes/TransformNode.h"
+#include "puke/engine/Engine.h"
+#include "puke/graph/Graph.h"
+#include "puke/nodes/ColorSpaceNode.h"
+#include "puke/nodes/GradeNode.h"
+#include "puke/nodes/MergeNode.h"
+#include "puke/nodes/ReadNode.h"
+#include "puke/nodes/Registry.h"
+#include "puke/nodes/TransformNode.h"
 
 namespace fs = std::filesystem;
 namespace OIIO = OIIO_NAMESPACE;
-using namespace comp;
+using namespace puke;
 
 // Largest per-channel difference allowed. Tight enough to catch real changes,
 // loose enough for last-bit differences between maths libraries.
@@ -191,7 +191,7 @@ static std::vector<Case> cases() {
              return merge(g, right, left, "over");
          }},
 
-        // A small but realistic comp: grade an element, move it, put it over the
+        // A small but realistic puke: grade an element, move it, put it over the
         // plate, then add a shrunken, rotated copy on top. The element feeds two
         // branches, so the engine has to share its result.
         {"comp_chain", [](Graph& g) -> Node& {
@@ -255,7 +255,7 @@ static bool runCase(const Case& c, bool update) {
     const Box region = info.dataWindow.unite(info.displayWindow);
     const Image actual = engine.render(output, {}, region);
 
-    const fs::path refPath = fs::path(COMP_GOLDEN_DIR) / (c.name + ".exr");
+    const fs::path refPath = fs::path(PUKE_GOLDEN_DIR) / (c.name + ".exr");
     if (update) {
         writeExr(refPath, actual, info.displayWindow);
         std::printf("updated %s\n", refPath.string().c_str());

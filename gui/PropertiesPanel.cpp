@@ -22,33 +22,33 @@
 
 #include "Document.h"
 
-namespace compgui {
+namespace pukegui {
 
 namespace {
 
-using Kind = comp::ParamSpec::Kind;
+using Kind = puke::ParamSpec::Kind;
 
 // Reading a stored value leniently, the way the nodes themselves do: an int
 // where a double is expected, one number for every component, and so on.
-double asNumber(const comp::ParamValue& v) {
+double asNumber(const puke::ParamValue& v) {
     if (auto* d = std::get_if<double>(&v)) return *d;
     if (auto* i = std::get_if<int>(&v)) return *i;
     if (auto* b = std::get_if<bool>(&v)) return *b;
     return 0;
 }
-std::array<double, 4> asComponents(const comp::ParamValue& v) {
-    if (auto* c = std::get_if<comp::Color>(&v)) return *c;
-    if (auto* p = std::get_if<comp::Vec2>(&v)) return {(*p)[0], (*p)[1], 0, 0};
+std::array<double, 4> asComponents(const puke::ParamValue& v) {
+    if (auto* c = std::get_if<puke::Color>(&v)) return *c;
+    if (auto* p = std::get_if<puke::Vec2>(&v)) return {(*p)[0], (*p)[1], 0, 0};
     const double n = asNumber(v);
     return {n, n, n, n};
 }
-QString asText(const comp::ParamValue& v) {
+QString asText(const puke::ParamValue& v) {
     return std::visit(
         [](const auto& x) -> QString {
             using T = std::decay_t<decltype(x)>;
             if constexpr (std::is_same_v<T, std::string>) return QString::fromStdString(x);
             else if constexpr (std::is_same_v<T, bool>) return x ? "true" : "false";
-            else if constexpr (std::is_same_v<T, comp::Vec2> || std::is_same_v<T, comp::Color>) {
+            else if constexpr (std::is_same_v<T, puke::Vec2> || std::is_same_v<T, puke::Color>) {
                 QStringList parts;
                 for (double d : x) parts << QString::number(d);
                 return parts.join(", ");
@@ -84,7 +84,7 @@ PropertiesPanel::PropertiesPanel(Document& doc, QWidget* parent) : QScrollArea(p
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     connect(&doc_, &Document::selectionChanged, this, &PropertiesPanel::rebuild);
     connect(&doc_, &Document::structureChanged, this, &PropertiesPanel::rebuild);
-    connect(&doc_, &Document::paramChanged, this, [this](comp::Node* n) {
+    connect(&doc_, &Document::paramChanged, this, [this](puke::Node* n) {
         if (n == node_) refresh();
     });
     connect(&doc_, &Document::frameChanged, this, &PropertiesPanel::refresh);  // animated values
@@ -125,7 +125,7 @@ void PropertiesPanel::rebuild() {
     titleRow->addWidget(typeLabel);
     outer->addLayout(titleRow);
     connect(nameEdit, &QLineEdit::editingFinished, this, [this, nameEdit] {
-        comp::Node* node = node_;
+        puke::Node* node = node_;
         const std::string name = nameEdit->text().trimmed().toStdString();
         if (!node || name == node->name()) return;
         // Renaming rebuilds this panel, deleting the field whose signal
@@ -134,7 +134,7 @@ void PropertiesPanel::rebuild() {
             if (node_ != node) return;
             try {
                 doc_.renameNode(*node, name);
-            } catch (const comp::Error& e) {
+            } catch (const puke::Error& e) {
                 nameEdit->setText(QString::fromStdString(node->name()));
                 QMessageBox::warning(this, "Rename", QString::fromStdString(e.what()));
             }
@@ -144,16 +144,16 @@ void PropertiesPanel::rebuild() {
     auto* form = new QFormLayout;
     form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
     outer->addLayout(form);
-    comp::Node& node = *node_;
+    puke::Node& node = *node_;
 
     std::vector<std::string> described;
-    std::vector<comp::ParamSpec> specs;
+    std::vector<puke::ParamSpec> specs;
     try {
         specs = node.paramSpecs();
-    } catch (const comp::Error&) {
+    } catch (const puke::Error&) {
     }
 
-    for (const comp::ParamSpec& spec : specs) {
+    for (const puke::ParamSpec& spec : specs) {
         described.push_back(spec.name);
         const std::string key = spec.name;
         auto* label = new QLabel(QString::fromStdString(spec.label.empty() ? spec.name : spec.label));
@@ -171,7 +171,7 @@ void PropertiesPanel::rebuild() {
         h->setContentsMargins(0, 0, 0, 0);
 
         // The value shown: the node's at the current frame, or the default.
-        auto current = [this, &node, key, def = spec.defaultValue]() -> comp::ParamValue {
+        auto current = [this, &node, key, def = spec.defaultValue]() -> puke::ParamValue {
             return node.valueAt(key, doc_.frame()).value_or(def);
         };
 
@@ -183,19 +183,19 @@ void PropertiesPanel::rebuild() {
         keyButton->setAutoRaise(true);
         keyButton->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(keyButton, &QToolButton::clicked, this, [this, &node, key, current] {
-            const comp::Curve* c = node.curve(key);
+            const puke::Curve* c = node.curve(key);
             if (c && c->keyAt(doc_.frame())) doc_.removeKey(node, key);
             else doc_.setKey(node, key, current());
         });
         connect(keyButton, &QToolButton::customContextMenuRequested, this, [this, &node, key, current, keyButton](QPoint at) {
-            const comp::Curve* c = node.curve(key);
-            const comp::Curve::Key* k = c ? c->keyAt(doc_.frame()) : nullptr;
+            const puke::Curve* c = node.curve(key);
+            const puke::Curve::Key* k = c ? c->keyAt(doc_.frame()) : nullptr;
             QMenu menu;
             menu.addAction("Set key", [this, &node, key, current] { doc_.setKey(node, key, current()); });
             menu.addAction("Delete key", [this, &node, key] { doc_.removeKey(node, key); })->setEnabled(k != nullptr);
             menu.addAction("Remove animation", [this, &node, key] { doc_.removeAnimation(node, key); })->setEnabled(c != nullptr);
             menu.addSeparator();
-            using I = comp::Curve::Interp;
+            using I = puke::Curve::Interp;
             for (auto [interp, name] : {std::pair{I::Smooth, "Smooth"}, {I::Linear, "Linear"}, {I::Constant, "Constant"}}) {
                 QAction* a = menu.addAction(name, [this, &node, key, interp] { doc_.setInterp(node, key, interp); });
                 a->setCheckable(true);
@@ -277,9 +277,9 @@ void PropertiesPanel::rebuild() {
                 for (auto* box : boxes)
                     connect(box, &QDoubleSpinBox::valueChanged, this, [this, &node, key, boxes, isColor](double) {
                         if (isColor)
-                            doc_.setParam(node, key, comp::Color{boxes[0]->value(), boxes[1]->value(), boxes[2]->value(), boxes[3]->value()});
+                            doc_.setParam(node, key, puke::Color{boxes[0]->value(), boxes[1]->value(), boxes[2]->value(), boxes[3]->value()});
                         else
-                            doc_.setParam(node, key, comp::Vec2{boxes[0]->value(), boxes[1]->value()});
+                            doc_.setParam(node, key, puke::Vec2{boxes[0]->value(), boxes[1]->value()});
                     });
                 refreshValue = [boxes, swatch, current] {
                     const auto c = asComponents(current());
@@ -309,7 +309,7 @@ void PropertiesPanel::rebuild() {
                 // (A choice stored as an index, e.g. from a script, shows by index.)
                 refreshValue = [box, current] {
                     QSignalBlocker b(box);
-                    const comp::ParamValue v = current();
+                    const puke::ParamValue v = current();
                     if (auto* i = std::get_if<int>(&v)) {
                         box->setCurrentIndex(*i);
                         return;
@@ -356,7 +356,7 @@ void PropertiesPanel::rebuild() {
 
         refreshers_.push_back([this, refreshValue, label, reset, keyButton, &node, key] {
             refreshValue();
-            const comp::Curve* c = node.curve(key);
+            const puke::Curve* c = node.curve(key);
             const bool set = c || node.hasParam(key);
             QFont f = label->font();
             f.setBold(set);
@@ -388,4 +388,4 @@ void PropertiesPanel::rebuild() {
     refresh();
 }
 
-}  // namespace compgui
+}  // namespace pukegui

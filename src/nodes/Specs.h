@@ -6,10 +6,10 @@
 #include <utility>
 #include <vector>
 
-#include "comp/color/ColorConfig.h"
-#include "comp/graph/Node.h"
+#include "puke/color/ColorConfig.h"
+#include "puke/graph/Node.h"
 
-namespace comp::specs {
+namespace puke::specs {
 
 using Kind = ParamSpec::Kind;
 
@@ -48,4 +48,4 @@ inline ParamSpec optional(ParamSpec s) {
     return s;
 }
 
-}  // namespace comp::specs
+}  // namespace puke::specs

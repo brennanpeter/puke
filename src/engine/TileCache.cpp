@@ -1,8 +1,8 @@
-#include "comp/engine/TileCache.h"
+#include "puke/engine/TileCache.h"
 
-#include "comp/core/Hash.h"
+#include "puke/core/Hash.h"
 
-namespace comp {
+namespace puke {
 
 std::size_t TileKeyHash::operator()(const TileKey& k) const {
     Hasher h;
@@ -71,4 +71,4 @@ std::size_t TileCache::size() const {
     return lru_.size();
 }
 
-}  // namespace comp
+}  // namespace puke

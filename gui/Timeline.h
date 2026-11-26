@@ -11,7 +11,7 @@ class QLabel;
 class QSpinBox;
 class QToolButton;
 
-namespace compgui {
+namespace pukegui {
 
 class Document;
 class Viewer;
@@ -82,4 +82,4 @@ private:
     int shownSincePlay_ = 0;
 };
 
-}  // namespace compgui
+}  // namespace pukegui

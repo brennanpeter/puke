@@ -6,11 +6,11 @@
 #include <optional>
 #include <vector>
 
-namespace comp {
+namespace puke {
 class Node;
 }
 
-namespace compgui {
+namespace pukegui {
 
 class Document;
 class NodeItem;
@@ -40,9 +40,9 @@ public:
     void showCreatePopup();
     void fitAll();
     // The nodes selected in the graph (the document tracks only the main one).
-    std::vector<comp::Node*> selectedNodes() const;
+    std::vector<puke::Node*> selectedNodes() const;
 
-    void selectNodes(const std::vector<comp::Node*>& nodes);
+    void selectNodes(const std::vector<puke::Node*>& nodes);
     // Creates a node as the create popup does: below and connected to the
     // selected node, or for a Backdrop, around the selected nodes.
     void createAt(const std::string& type, QPointF scenePos);
@@ -74,14 +74,14 @@ private:
 
     Document& doc_;
     QGraphicsScene scene_;
-    std::map<const comp::Node*, NodeItem*> items_;
+    std::map<const puke::Node*, NodeItem*> items_;
     std::vector<EdgeItem*> edges_;
     bool syncing_ = false;
 
     // Dragging a connection.
     struct Drag {
-        comp::Node* source = nullptr;       // whose output the wire starts at
-        comp::Node* detachedFrom = nullptr;  // input we pulled it off, if any
+        puke::Node* source = nullptr;       // whose output the wire starts at
+        puke::Node* detachedFrom = nullptr;  // input we pulled it off, if any
         int detachedInput = -1;
         QGraphicsPathItem* wire = nullptr;
     };
@@ -91,4 +91,4 @@ private:
     QPointF lastScenePos_;
 };
 
-}  // namespace compgui
+}  // namespace pukegui

@@ -1,11 +1,11 @@
-#include "comp/nodes/ConstantNode.h"
+#include "puke/nodes/ConstantNode.h"
 
 #include <algorithm>
 #include <cmath>
 
 #include "Specs.h"
 
-namespace comp {
+namespace puke {
 
 std::vector<ParamSpec> ConstantNode::paramSpecs() const {
     using namespace specs;
@@ -43,4 +43,4 @@ Image ConstantNode::compute(const RenderContext&, const Box& region, std::span<c
     return img;
 }
 
-}  // namespace comp
+}  // namespace puke

@@ -23,9 +23,9 @@
 #include "RenderDialog.h"
 #include "Timeline.h"
 #include "Viewer.h"
-#include "comp/nodes/Registry.h"
+#include "puke/nodes/Registry.h"
 
-namespace compgui {
+namespace pukegui {
 
 void applyTheme() {
     QApplication::setStyle(QStyleFactory::create("Fusion"));
@@ -91,7 +91,7 @@ MainWindow::MainWindow() {
     });
     file->addAction("&Open...", QKeySequence::Open, this, [this] {
         if (!maybeSave()) return;
-        const QString path = QFileDialog::getOpenFileName(this, "Open project", {}, "comp projects (*.comp);;All files (*)");
+        const QString path = QFileDialog::getOpenFileName(this, "Open project", {}, "puke projects (*.puke);;All files (*)");
         if (!path.isEmpty()) openProject(path);
     });
     file->addAction("&Save", QKeySequence::Save, this, [this] { save(); });
@@ -134,17 +134,17 @@ MainWindow::MainWindow() {
     nodes->addAction("Create... (Tab)", this, [this] { graph_->showCreatePopup(); });
     nodes->addSeparator();
     QMenu* ofx = nullptr;
-    for (const auto& type : comp::nodeTypes()) {
+    for (const auto& type : puke::nodeTypes()) {
         const bool isOfx = type.rfind("ofx:", 0) == 0;
         if (isOfx && !ofx) ofx = nodes->addMenu("OFX plugins");
         QMenu* into = isOfx ? ofx : nodes;
         into->addAction(QString::fromStdString(isOfx ? type.substr(4) : type), this, [this, type] {
-            const comp::Node* sel = doc_->selected();
+            const puke::Node* sel = doc_->selected();
             QPointF pos(0, 0);
             if (sel && sel->position()) pos = QPointF((*sel->position())[0], (*sel->position())[1] + 90);
             try {
                 doc_->createNode(type, pos, doc_->selected());
-            } catch (const comp::Error& e) {
+            } catch (const puke::Error& e) {
                 QMessageBox::warning(this, "Create node", QString::fromStdString(e.what()));
             }
         });
@@ -208,7 +208,7 @@ void MainWindow::showRenderDialog() {
 
 void MainWindow::updateTitle() {
     const QString name = doc_->path().isEmpty() ? "untitled" : QFileInfo(doc_->path()).fileName();
-    setWindowTitle(QString("%1%2 - comp").arg(name, doc_->dirty() ? "*" : ""));
+    setWindowTitle(QString("%1%2 - puke").arg(name, doc_->dirty() ? "*" : ""));
 }
 
 bool MainWindow::openProject(const QString& path) {
@@ -233,9 +233,9 @@ bool MainWindow::save() {
 }
 
 bool MainWindow::saveAs() {
-    QString path = QFileDialog::getSaveFileName(this, "Save project", doc_->path(), "comp projects (*.comp)");
+    QString path = QFileDialog::getSaveFileName(this, "Save project", doc_->path(), "puke projects (*.puke)");
     if (path.isEmpty()) return false;
-    if (QFileInfo(path).suffix().isEmpty()) path += ".comp";
+    if (QFileInfo(path).suffix().isEmpty()) path += ".puke";
     QString error;
     if (!doc_->save(path, &error)) {
         QMessageBox::critical(this, "Save project", error);
@@ -266,4 +266,4 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     event->accept();
 }
 
-}  // namespace compgui
+}  // namespace pukegui

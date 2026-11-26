@@ -6,14 +6,14 @@
 #include <string>
 
 #include "TestUtil.h"
-#include "comp/engine/Engine.h"
-#include "comp/graph/Graph.h"
-#include "comp/nodes/GradeNode.h"
-#include "comp/nodes/Registry.h"
-#include "comp/nodes/MergeNode.h"
-#include "comp/nodes/TransformNode.h"
+#include "puke/engine/Engine.h"
+#include "puke/graph/Graph.h"
+#include "puke/nodes/GradeNode.h"
+#include "puke/nodes/Registry.h"
+#include "puke/nodes/MergeNode.h"
+#include "puke/nodes/TransformNode.h"
 
-using namespace comp;
+using namespace puke;
 
 static const Box kFormat{0, 0, 32, 32};
 static const ChannelList kRGBA{"R", "G", "B", "A"};
@@ -400,7 +400,7 @@ static void testTransformRegions() {
 }
 
 static void testChain() {
-    // Read-less mini comp: grade a foreground, move it, put it over a background.
+    // Read-less mini puke: grade a foreground, move it, put it over a background.
     Engine e;
     Graph g;
     auto& bg = solid(g, "BG", {0.1, 0.2, 0.3, 1});

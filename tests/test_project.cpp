@@ -9,12 +9,12 @@
 #include <string>
 
 #include "TestUtil.h"
-#include "comp/engine/Engine.h"
-#include "comp/graph/Graph.h"
-#include "comp/nodes/Registry.h"
-#include "comp/project/Project.h"
+#include "puke/engine/Engine.h"
+#include "puke/graph/Graph.h"
+#include "puke/nodes/Registry.h"
+#include "puke/project/Project.h"
 
-using namespace comp;
+using namespace puke;
 namespace fs = std::filesystem;
 
 static fs::path g_dir;
@@ -45,7 +45,7 @@ static void testExactFormat() {
     g.connect(read, grade, 0);
 
     const std::string expected = R"({
-  "format": "comp",
+  "format": "puke",
   "version": 1,
   "nodes": [
     {
@@ -153,7 +153,7 @@ static void testSettings() {
     g.setSettings({1, 1, 24, {2048, 858}});  // only the format differs from the defaults: still written
     CHECK((projectFromJson(projectToJson(g)).settings().format == Format{2048, 858}));
     // Any key may be left out.
-    const std::string head = R"({"format": "comp", "version": 1, "nodes": [], "settings": )";
+    const std::string head = R"({"format": "puke", "version": 1, "nodes": [], "settings": )";
     CHECK((projectFromJson(head + R"({"last_frame": 50}})").settings() == ProjectSettings{1, 50, 24}));
     CHECK_THROWS(projectFromJson(head + R"({"first_frame": 10, "last_frame": 5}})", "p"),
                  "p: settings: the last frame (5) is before the first (10)");
@@ -190,32 +190,34 @@ static void testSomeNodes() {
 
 static void testLoadOrderAndOptionalFields() {
     // Consumers may come before their inputs; inputs and params may be omitted.
-    const Graph g = projectFromJson(R"({"format": "comp", "version": 1, "nodes": [
+    const Graph g = projectFromJson(R"({"format": "puke", "version": 1, "nodes": [
         {"name": "Grade1", "type": "Grade", "inputs": ["Read1"]},
         {"name": "Read1", "type": "Read", "params": {"file": "x.exr", "first": 1, "scale": [1, 2]}}
     ]})");
     CHECK(g.find("Grade1")->input(0) == g.find("Read1"));
     CHECK(g.find("Read1")->param<int>("first") == 1);
     CHECK((g.find("Read1")->param<Vec2>("scale") == Vec2{1, 2}));  // whole numbers in a list are fine
-    CHECK(projectFromJson(R"({"format": "comp", "version": 1, "nodes": []})").nodes().empty());
+    CHECK(projectFromJson(R"({"format": "puke", "version": 1, "nodes": []})").nodes().empty());
+    // Saved before the rename (as "comp"): still read.
+    CHECK(projectFromJson(R"({"format": "comp", "version": 1, "nodes": [{"name": "G", "type": "Grade"}]})").find("G"));
 }
 
 static std::string wrap(const std::string& nodes) {
-    return R"({"format": "comp", "version": 1, "nodes": [)" + nodes + "]}";
+    return R"({"format": "puke", "version": 1, "nodes": [)" + nodes + "]}";
 }
 
 static void testErrors() {
-    CHECK_THROWS(projectFromJson("{\"format\": \"comp\",\n \"version\": 1,\n \"nodes\": [}", "shot.comp"),
-                 "shot.comp: not valid JSON");
+    CHECK_THROWS(projectFromJson("{\"format\": \"puke\",\n \"version\": 1,\n \"nodes\": [}", "shot.puke"),
+                 "shot.puke: not valid JSON");
     CHECK_THROWS(projectFromJson("[]", "p"), "p: a project must be a JSON object");
     CHECK_THROWS(projectFromJson(R"({"format": "nuke", "version": 1, "nodes": []})", "p"),
-                 "not a comp project (format is 'nuke')");
+                 "not a puke project (format is 'nuke')");
     CHECK_THROWS(projectFromJson(R"({"version": 1, "nodes": []})", "p"), "p: missing 'format'");
-    CHECK_THROWS(projectFromJson(R"({"format": "comp", "version": 2, "nodes": []})", "p"),
-                 "saved by a newer version of comp (format version 2); this build reads up to version 1");
-    CHECK_THROWS(projectFromJson(R"({"format": "comp", "version": "1", "nodes": []})", "p"),
+    CHECK_THROWS(projectFromJson(R"({"format": "puke", "version": 2, "nodes": []})", "p"),
+                 "saved by a newer version of puke (format version 2); this build reads up to version 1");
+    CHECK_THROWS(projectFromJson(R"({"format": "puke", "version": "1", "nodes": []})", "p"),
                  "'version' must be a whole number, not a string");
-    CHECK_THROWS(projectFromJson(R"({"format": "comp", "version": 1, "nodes": [], "extra": 1})", "p"),
+    CHECK_THROWS(projectFromJson(R"({"format": "puke", "version": 1, "nodes": [], "extra": 1})", "p"),
                  "p: unknown key 'extra'");
 
     CHECK_THROWS(projectFromJson(wrap(R"({"type": "Grade"})"), "p"), "p: node 1: missing 'name'");
@@ -258,9 +260,9 @@ static void testFiles() {
     write.setParam("file", std::string("out.exr"));
     g.connect(read, write, 0);
 
-    const fs::path path = g_dir / "shot.comp";
+    const fs::path path = g_dir / "shot.puke";
     saveProject(g, path);
-    CHECK(fs::exists(path) && !fs::exists(g_dir / "shot.comp.partial"));
+    CHECK(fs::exists(path) && !fs::exists(g_dir / "shot.puke.partial"));
     CHECK(readFile(path) == projectToJson(g));
     const Graph back = loadProject(path);
     CHECK(projectToJson(back) == projectToJson(g));
@@ -270,11 +272,11 @@ static void testFiles() {
     CHECK_THROWS(saveProject(g, path), "is infinite");
     CHECK(readFile(path) == projectToJson(back));
 
-    CHECK_THROWS(loadProject(g_dir / "missing.comp"), "cannot open project");
-    CHECK_THROWS(saveProject(back, g_dir / "no_such_dir" / "x.comp"), "cannot write project");
+    CHECK_THROWS(loadProject(g_dir / "missing.puke"), "cannot open project");
+    CHECK_THROWS(saveProject(back, g_dir / "no_such_dir" / "x.puke"), "cannot write project");
 
-    std::ofstream(g_dir / "broken.comp") << "{\"format\": \"comp\", \"version\": 1, \"nodes\": [{\"name\": 5}]}";
-    CHECK_THROWS(loadProject(g_dir / "broken.comp"), "broken.comp: node 1: 'name' must be a string, not a number");
+    std::ofstream(g_dir / "broken.puke") << "{\"format\": \"puke\", \"version\": 1, \"nodes\": [{\"name\": 5}]}";
+    CHECK_THROWS(loadProject(g_dir / "broken.puke"), "broken.puke: node 1: 'name' must be a string, not a number");
 }
 
 static void testLoadedGraphRenders() {

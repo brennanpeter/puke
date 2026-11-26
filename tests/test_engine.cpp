@@ -12,13 +12,13 @@
 #include <vector>
 
 #include "TestUtil.h"
-#include "comp/engine/Engine.h"
-#include "comp/engine/Snapshot.h"
-#include "comp/engine/ThreadPool.h"
-#include "comp/engine/TileCache.h"
-#include "comp/graph/Graph.h"
+#include "puke/engine/Engine.h"
+#include "puke/engine/Snapshot.h"
+#include "puke/engine/ThreadPool.h"
+#include "puke/engine/TileCache.h"
+#include "puke/graph/Graph.h"
 
-using namespace comp;
+using namespace puke;
 
 static const Box kFormat{0, 0, 64, 32};
 static const ChannelList kRGBA{"R", "G", "B", "A"};

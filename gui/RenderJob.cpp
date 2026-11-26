@@ -1,18 +1,18 @@
 #include "RenderJob.h"
 
-#include "comp/engine/Engine.h"
-#include "comp/engine/Snapshot.h"
-#include "comp/nodes/WriteNode.h"
+#include "puke/engine/Engine.h"
+#include "puke/engine/Snapshot.h"
+#include "puke/nodes/WriteNode.h"
 
-namespace compgui {
+namespace pukegui {
 
-RenderJob::RenderJob(const std::vector<comp::WriteNode*>& writes, int first, int last, const comp::Format& format,
+RenderJob::RenderJob(const std::vector<puke::WriteNode*>& writes, int first, int last, const puke::Format& format,
                      QObject* parent)
     : QObject(parent), first_(first), last_(last), format_(format) {
-    if (last < first) throw comp::Error("the last frame is before the first");
-    if (writes.empty()) throw comp::Error("no Write nodes to render");
-    for (comp::WriteNode* w : writes)
-        tasks_.push_back({w->name(), w, std::make_shared<const comp::Snapshot>(comp::Snapshot::of(*w))});
+    if (last < first) throw puke::Error("the last frame is before the first");
+    if (writes.empty()) throw puke::Error("no Write nodes to render");
+    for (puke::WriteNode* w : writes)
+        tasks_.push_back({w->name(), w, std::make_shared<const puke::Snapshot>(puke::Snapshot::of(*w))});
     total_ = (last - first + 1) * static_cast<int>(tasks_.size());
 }
 
@@ -28,7 +28,7 @@ void RenderJob::start() {
 }
 
 void RenderJob::run() {
-    comp::Engine engine;  // every core; no tile cache: each frame is rendered once
+    puke::Engine engine;  // every core; no tile cache: each frame is rendered once
     int done = 0;
     for (int f = first_; f <= last_; ++f) {
         for (const Task& t : tasks_) {
@@ -78,4 +78,4 @@ void RenderJob::takeEvents() {
     }
 }
 
-}  // namespace compgui
+}  // namespace pukegui

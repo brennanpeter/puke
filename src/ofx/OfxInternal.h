@@ -1,8 +1,8 @@
 #pragma once
 
-// Internals of comp's OpenFX host, shared by OfxHost.cpp (suites, plugin
+// Internals of puke's OpenFX host, shared by OfxHost.cpp (suites, plugin
 // loading) and OfxNode.cpp (running a plugin inside the engine). Nothing
-// here is public API; see include/comp/ofx/OfxHost.h for that.
+// here is public API; see include/puke/ofx/OfxHost.h for that.
 
 #include <functional>
 #include <map>
@@ -16,11 +16,11 @@
 #include "ofxParam.h"
 #include "ofxProperty.h"
 
-#include "comp/core/Box.h"
-#include "comp/core/Image.h"
-#include "comp/graph/Node.h"
+#include "puke/core/Box.h"
+#include "puke/core/Image.h"
+#include "puke/graph/Node.h"
 
-namespace comp::ofx {
+namespace puke::ofx {
 
 // ---------------------------------------------------------------- properties
 
@@ -85,7 +85,7 @@ class OfxNode;
 struct Clip : PropertySet {
     std::string name;
     Effect* effect = nullptr;
-    int input = -1;  // index of the comp input feeding it; -1 for the output clip
+    int input = -1;  // index of the puke input feeding it; -1 for the output clip
 };
 
 struct Param : PropertySet {
@@ -170,16 +170,16 @@ void noteProblem(const std::string& message);
 struct CallContext {
     const OfxNode* node = nullptr;
     double time = 0;
-    int flipY = 0;  // OFX y = flipY - comp y (see OfxNode.cpp), in pixel coordinates
+    int flipY = 0;  // OFX y = flipY - puke y (see OfxNode.cpp), in pixel coordinates
     double scale = 1;        // render scale
     int flipCanonical = 0;   // the same for canonical (full-size) coordinates
-    std::vector<ImageInfo> inputInfos;  // per comp input; empty info if unconnected
+    std::vector<ImageInfo> inputInfos;  // per puke input; empty info if unconnected
     std::vector<bool> connected;
     ImageInfo outputInfo;
 
     // During render only.
     std::vector<const Image*> inputs;
-    Box renderWindow;            // comp coordinates
+    Box renderWindow;            // puke coordinates
     std::vector<float>* output = nullptr;  // RGBA, OFX row order, covering renderWindow
 
     // Input buffers built on first request, one per clip.
@@ -204,9 +204,9 @@ struct ScopedContext {
     CallContext* previous;
 };
 
-// Rectangles between comp's y-down pixel boxes and OFX's y-up coordinates.
+// Rectangles between puke's y-down pixel boxes and OFX's y-up coordinates.
 OfxRectI toOfx(const Box& b, int flipY);
 Box fromOfx(const OfxRectI& r, int flipY);
 Box fromOfx(const OfxRectD& r, int flipY);  // rounded outwards
 
-}  // namespace comp::ofx
+}  // namespace puke::ofx

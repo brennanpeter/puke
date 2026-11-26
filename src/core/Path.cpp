@@ -1,13 +1,13 @@
-#include "comp/core/Path.h"
+#include "puke/core/Path.h"
 
 #include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <limits>
 
-#include "comp/graph/Param.h"  // Error
+#include "puke/graph/Param.h"  // Error
 
-namespace comp {
+namespace puke {
 
 namespace {
 
@@ -184,4 +184,4 @@ Box Path::bounds() const {
     return {clampi(std::floor(x0)), clampi(std::floor(y0)), clampi(std::ceil(x1)), clampi(std::ceil(y1))};
 }
 
-}  // namespace comp
+}  // namespace puke

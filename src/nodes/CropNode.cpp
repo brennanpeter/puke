@@ -1,11 +1,11 @@
-#include "comp/nodes/CropNode.h"
+#include "puke/nodes/CropNode.h"
 
 #include <algorithm>
 #include <cmath>
 
 #include "Specs.h"
 
-namespace comp {
+namespace puke {
 
 std::vector<ParamSpec> CropNode::paramSpecs() const {
     using namespace specs;
@@ -64,4 +64,4 @@ Image CropNode::compute(const RenderContext& ctx, const Box& region, std::span<c
     return out;
 }
 
-}  // namespace comp
+}  // namespace puke

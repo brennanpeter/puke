@@ -7,11 +7,11 @@
 
 #include "Document.h"
 
-namespace compgui {
+namespace pukegui {
 
 namespace {
 
-using Point = comp::Path::Point;
+using Point = puke::Path::Point;
 
 Point pt(QPointF p) { return {p.x(), p.y()}; }
 QPointF qpt(const Point& p) { return {p[0], p[1]}; }
@@ -26,10 +26,10 @@ RotoTool::RotoTool(Document& doc, QObject* parent) : QObject(parent), doc_(doc) 
         if (!node()) setDrawing(false);
         emit changed();
     });
-    auto recheck = [this](comp::Node* n) {
+    auto recheck = [this](puke::Node* n) {
         if (n != node()) return;
         // An undo may have taken away the selected point.
-        const comp::Path path = shape();
+        const puke::Path path = shape();
         if (selected_ && (selected_->first >= int(path.curves().size()) ||
                           selected_->second >= int(path.curves()[selected_->first].size())))
             selected_.reset();
@@ -41,8 +41,8 @@ RotoTool::RotoTool(Document& doc, QObject* parent) : QObject(parent), doc_(doc) 
     connect(&doc_, &Document::frameChanged, this, [this, recheck] { recheck(node()); });
 }
 
-comp::Node* RotoTool::node() const {
-    comp::Node* n = doc_.selected();
+puke::Node* RotoTool::node() const {
+    puke::Node* n = doc_.selected();
     return n && std::string(n->typeName()) == "Roto" ? n : nullptr;
 }
 
@@ -60,20 +60,20 @@ void RotoTool::finishCurve() {
     emit changed();
 }
 
-comp::Path RotoTool::shape() const {
-    comp::Node* n = node();
+puke::Path RotoTool::shape() const {
+    puke::Node* n = node();
     if (!n) return {};
     try {
         const auto v = n->valueAt("shape", doc_.frame());  // animated shapes: as at this frame
         const auto* s = v ? std::get_if<std::string>(&*v) : nullptr;
-        return comp::Path::parse(s ? *s : "");
-    } catch (const comp::Error&) {
+        return puke::Path::parse(s ? *s : "");
+    } catch (const puke::Error&) {
         return {};  // typed in wrong: the render says so; nothing to edit here
     }
 }
 
-void RotoTool::setShape(const comp::Path& path) {
-    if (comp::Node* n = node()) doc_.setParam(*n, "shape", path.str());
+void RotoTool::setShape(const puke::Path& path) {
+    if (puke::Node* n = node()) doc_.setParam(*n, "shape", path.str());
 }
 
 bool RotoTool::wantsKey(int key) const {
@@ -83,7 +83,7 @@ bool RotoTool::wantsKey(int key) const {
     return false;
 }
 
-std::optional<std::pair<int, int>> RotoTool::knotAt(const comp::Path& path, QPointF p, double tolerance) const {
+std::optional<std::pair<int, int>> RotoTool::knotAt(const puke::Path& path, QPointF p, double tolerance) const {
     std::optional<std::pair<int, int>> best;
     double bestD = tolerance;
     for (int c = 0; c < int(path.curves().size()); ++c)
@@ -96,7 +96,7 @@ std::optional<std::pair<int, int>> RotoTool::knotAt(const comp::Path& path, QPoi
 
 bool RotoTool::press(QPointF p, double tolerance) {
     if (!node()) return false;
-    comp::Path path = shape();
+    puke::Path path = shape();
 
     // The selected point's handles come first (they can sit on other points).
     if (selected_ && !drawing_) {
@@ -152,7 +152,7 @@ bool RotoTool::press(QPointF p, double tolerance) {
 
 bool RotoTool::move(QPointF p) {
     if (drag_ == Drag::None || !selected_) return false;
-    comp::Path path = shape();
+    puke::Path path = shape();
     auto& curve = path.curves()[selected_->first];
     auto& k = curve[selected_->second];
     switch (drag_) {
@@ -207,7 +207,7 @@ bool RotoTool::release(QPointF) {
 
 bool RotoTool::doubleClick(QPointF p, double tolerance) {
     if (!node() || drawing_) return false;
-    comp::Path path = shape();
+    puke::Path path = shape();
     const auto hit = knotAt(path, p, tolerance);
     if (!hit) return false;
     auto& curve = path.curves()[hit->first];
@@ -241,7 +241,7 @@ bool RotoTool::key(int key) {
         finishCurve();
         return true;
     }
-    comp::Path path = shape();
+    puke::Path path = shape();
     auto& curves = path.curves();
     curves[selected_->first].erase(curves[selected_->first].begin() + selected_->second);
     if (curves[selected_->first].empty()) {
@@ -258,7 +258,7 @@ bool RotoTool::key(int key) {
 
 void RotoTool::paint(QPainter& p, const std::function<QPointF(QPointF)>& toWidget, double zoom) const {
     if (!node()) return;
-    const comp::Path path = shape();
+    const puke::Path path = shape();
     p.setRenderHint(QPainter::Antialiasing);
     const QColor line(255, 190, 60), knot(255, 230, 150), handle(120, 200, 255);
 
@@ -295,4 +295,4 @@ void RotoTool::paint(QPainter& p, const std::function<QPointF(QPointF)>& toWidge
         }
 }
 
-}  // namespace compgui
+}  // namespace pukegui

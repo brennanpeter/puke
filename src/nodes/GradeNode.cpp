@@ -1,4 +1,4 @@
-#include "comp/nodes/GradeNode.h"
+#include "puke/nodes/GradeNode.h"
 
 #include "Specs.h"
 
@@ -6,7 +6,7 @@
 #include <cmath>
 #include <vector>
 
-namespace comp {
+namespace puke {
 
 Image GradeNode::compute(const RenderContext&, const Box& region,
                          std::span<const Image* const> inputs) const {
@@ -86,4 +86,4 @@ std::vector<ParamSpec> GradeNode::paramSpecs() const {
     };
 }
 
-}  // namespace comp
+}  // namespace puke

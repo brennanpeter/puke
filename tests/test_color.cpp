@@ -1,6 +1,6 @@
 // Tests for color management: the built-in config, loading configs, and the
 // ColorSpace node. Expected values come from published references, not from
-// comp itself.
+// puke itself.
 
 #include <cmath>
 #include <cstdio>
@@ -10,12 +10,12 @@
 #include <string>
 
 #include "TestUtil.h"
-#include "comp/color/ColorConfig.h"
-#include "comp/engine/Engine.h"
-#include "comp/graph/Graph.h"
-#include "comp/nodes/ColorSpaceNode.h"
+#include "puke/color/ColorConfig.h"
+#include "puke/engine/Engine.h"
+#include "puke/graph/Graph.h"
+#include "puke/nodes/ColorSpaceNode.h"
 
-using namespace comp;
+using namespace puke;
 using test::SourceNode;
 namespace fs = std::filesystem;
 

@@ -1,11 +1,11 @@
-#include "comp/nodes/RotoNode.h"
+#include "puke/nodes/RotoNode.h"
 
 #include <algorithm>
 #include <cmath>
 
 #include "Specs.h"
 
-namespace comp {
+namespace puke {
 
 namespace {
 
@@ -164,4 +164,4 @@ Image RotoNode::compute(const RenderContext& ctx, const Box& region, std::span<c
     return out;
 }
 
-}  // namespace comp
+}  // namespace puke

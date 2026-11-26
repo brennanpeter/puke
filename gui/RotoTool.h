@@ -7,15 +7,15 @@
 #include <functional>
 #include <optional>
 
-#include "comp/core/Path.h"
+#include "puke/core/Path.h"
 
 class QPainter;
 
-namespace comp {
+namespace puke {
 class Node;
 }
 
-namespace compgui {
+namespace pukegui {
 
 class Document;
 
@@ -38,7 +38,7 @@ public:
     explicit RotoTool(Document& doc, QObject* parent = nullptr);
 
     // The selected node, if it's a Roto: what this edits.
-    comp::Node* node() const;
+    puke::Node* node() const;
     bool drawing() const { return drawing_; }
     void setDrawing(bool on);
 
@@ -66,9 +66,9 @@ signals:
 private:
     enum class Drag { None, Knot, In, Out, NewPoint };
 
-    comp::Path shape() const;  // the node's, or empty if it doesn't parse
-    void setShape(const comp::Path& path);
-    std::optional<std::pair<int, int>> knotAt(const comp::Path& path, QPointF p, double tolerance) const;
+    puke::Path shape() const;  // the node's, or empty if it doesn't parse
+    void setShape(const puke::Path& path);
+    std::optional<std::pair<int, int>> knotAt(const puke::Path& path, QPointF p, double tolerance) const;
     void finishCurve();
 
     Document& doc_;
@@ -84,4 +84,4 @@ private:
     void openEdit();
 };
 
-}  // namespace compgui
+}  // namespace pukegui

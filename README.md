@@ -1,6 +1,6 @@
-# comp
+# puke
 
-comp is an open source, node-based VFX compositor modeled on Nuke, written
+puke is an open source, node-based VFX compositor modeled on Nuke, written
 in C++20. It is a headless rendering library at heart. Three front ends sit
 on top of the same public API: a desktop GUI, a command-line renderer and a
 Python module.
@@ -21,11 +21,11 @@ Python. See [Roadmap.md](Roadmap.md) for what's done and what's next.
   Reformat, Shuffle, Premult/Unpremult, Blur, ColorSpace, Roto, Backdrop.
 - **OpenFX plugins**: filters, generators and transitions, with plugin
   overlays drawn in the viewer.
-- **Color**: OpenColorIO 2. comp uses `$OCIO` when it's set, and
+- **Color**: OpenColorIO 2. puke uses `$OCIO` when it's set, and
   otherwise a small built-in config.
 - **Animation**: keyframes on every parameter (smooth, linear or
   constant, with optional key tangents), and a curve editor.
-- **Projects**: text project files (`.comp`, JSON), meant to be easy to
+- **Projects**: text project files (`.puke`, JSON), meant to be easy to
   diff. They hold the frame range, fps and project format.
 - **GUI** (Qt 6):
   - Node graph, viewer, properties panel and timeline.
@@ -70,7 +70,7 @@ ctest --test-dir build
 The GUI and the Python module are built when their libraries are found.
 To skip them, pass `-DCOMP_GUI=OFF` or `-DCOMP_PYTHON=OFF`.
 
-So far comp is built and tested on Linux. The OFX test plugins are built
+So far puke is built and tested on Linux. The OFX test plugins are built
 on Linux only.
 
 ## Using it
@@ -78,7 +78,7 @@ on Linux only.
 ### The GUI
 
 ```sh
-build/comp_gui
+build/puke_gui
 ```
 
 | Key | Does |
@@ -98,11 +98,11 @@ build/comp_gui
 
 ```sh
 # Render a project's Write nodes over its frame range, or part of it:
-build/comp_render shot.comp
-build/comp_render shot.comp --frames 1001-1100 --write Write1
+build/puke_render shot.puke
+build/puke_render shot.puke --frames 1001-1100 --write Write1
 
 # Convert an image or sequence (#### is the frame number):
-build/comp_render plates/shot.####.exr out/shot.####.exr --frames 1001-1100 --compression zip
+build/puke_render plates/shot.####.exr out/shot.####.exr --frames 1001-1100 --compression zip
 ```
 
 `--threads N` limits the threads used (the default, 0, uses every core).
@@ -116,39 +116,39 @@ PYTHONPATH=build/python python3
 ```
 
 ```python
-import comp
+import puke
 
-g = comp.Graph()
+g = puke.Graph()
 read = g.create("Read", file="plates/shot.####.exr")
 grade = g.create("Grade", multiply=(1.2, 1.1, 1.0, 1.0))
 write = g.create("Write", file="out/shot.####.exr")
 g.connect(read, grade)
 g.connect(grade, write)
-g.save("shot.comp")
+g.save("shot.puke")
 
-engine = comp.Engine()
+engine = puke.Engine()
 for frame in range(1001, 1011):
     write.execute(engine, frame)
 ```
 
 ### OpenFX plugins
 
-comp loads OFX plugins from the directories in `$OFX_PLUGIN_PATH` and from
+puke loads OFX plugins from the directories in `$OFX_PLUGIN_PATH` and from
 `/usr/OFX/Plugins`. Their node types are named `ofx:<plugin identifier>`.
 
 ## Layout
 
 | Path | What's there |
 | --- | --- |
-| `include/comp/`, `src/` | the library: core types, graph, engine, nodes, color, OFX host, projects |
+| `include/puke/`, `src/` | the library: core types, graph, engine, nodes, color, OFX host, projects |
 | `gui/` | the Qt GUI |
-| `tools/comp_render.cpp` | the command-line renderer |
+| `tools/puke_render.cpp` | the command-line renderer |
 | `python/module.cpp` | the Python bindings |
 | `tests/` | tests, golden images and OFX test plugins |
 | `third_party/openfx/` | the OpenFX headers |
 
 ## License
 
-comp is released under the [MIT License](LICENSE). The OpenFX headers in
+puke is released under the [MIT License](LICENSE). The OpenFX headers in
 `third_party/openfx/` keep their own license
 ([third_party/openfx/LICENSE.txt](third_party/openfx/LICENSE.txt)).

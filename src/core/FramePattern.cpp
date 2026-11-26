@@ -1,10 +1,10 @@
-#include "comp/core/FramePattern.h"
+#include "puke/core/FramePattern.h"
 
 #include <cctype>
 #include <cstdio>
 #include <optional>
 
-namespace comp {
+namespace puke {
 namespace {
 
 struct Token {
@@ -60,4 +60,4 @@ std::string expandFramePattern(const std::string& pattern, int frame) {
     return out;
 }
 
-}  // namespace comp
+}  // namespace puke

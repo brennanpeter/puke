@@ -10,14 +10,14 @@
 #include <vector>
 
 #include "TestUtil.h"
-#include "comp/engine/Engine.h"
-#include "comp/graph/Graph.h"
-#include "comp/nodes/Registry.h"
-#include "comp/ofx/OfxHost.h"
-#include "comp/ofx/Overlay.h"
-#include "comp/project/Project.h"
+#include "puke/engine/Engine.h"
+#include "puke/graph/Graph.h"
+#include "puke/nodes/Registry.h"
+#include "puke/ofx/OfxHost.h"
+#include "puke/ofx/Overlay.h"
+#include "puke/project/Project.h"
 
-using namespace comp;
+using namespace puke;
 using test::SourceNode;
 
 namespace {
@@ -50,13 +50,13 @@ static void testDiscovery() {
     const auto plugins = ofx::plugins();
     std::vector<std::string> ids;
     for (const auto& p : plugins) ids.push_back(p.identifier);
-    for (const char* id : {"org.comp.test.ByteOnly", "org.comp.test.Coords", "org.comp.test.Gain", "org.comp.test.Generator",
-                           "org.comp.test.MaskMultiply", "org.comp.test.Point", "org.comp.test.Shift",
-                           "org.comp.test.Transition"})
+    for (const char* id : {"org.puke.test.ByteOnly", "org.puke.test.Coords", "org.puke.test.Gain", "org.puke.test.Generator",
+                           "org.puke.test.MaskMultiply", "org.puke.test.Point", "org.puke.test.Shift",
+                           "org.puke.test.Transition"})
         CHECK(std::find(ids.begin(), ids.end(), id) != ids.end());
     CHECK(std::is_sorted(ids.begin(), ids.end()));
     for (const auto& p : plugins)
-        if (p.identifier == "org.comp.test.Shift") CHECK(p.versionMajor == 1 && p.versionMinor == 2);
+        if (p.identifier == "org.puke.test.Shift") CHECK(p.versionMajor == 1 && p.versionMinor == 2);
 
     // A broken bundle is reported, and doesn't stop the others loading.
     bool reported = false;
@@ -64,23 +64,23 @@ static void testDiscovery() {
     CHECK(reported);
 
     const auto types = nodeTypes();
-    CHECK(std::find(types.begin(), types.end(), "ofx:org.comp.test.Gain") != types.end());
+    CHECK(std::find(types.begin(), types.end(), "ofx:org.puke.test.Gain") != types.end());
 
-    CHECK_THROWS(createNode("ofx:org.comp.test.Nope", "X"), "no OFX plugin 'org.comp.test.Nope'");
-    CHECK_THROWS(createNode("ofx:org.comp.test.Transition", "T"),
-                 "has no context comp can host yet (Filter, Generator or General); it offers: OfxImageEffectContextTransition");
-    CHECK_THROWS(createNode("ofx:org.comp.test.Transition", "T"), "has no context comp can host");  // remembered
-    CHECK_THROWS(createNode("ofx:org.comp.test.ByteOnly", "B"), "doesn't support float images");
+    CHECK_THROWS(createNode("ofx:org.puke.test.Nope", "X"), "no OFX plugin 'org.puke.test.Nope'");
+    CHECK_THROWS(createNode("ofx:org.puke.test.Transition", "T"),
+                 "has no context puke can host yet (Filter, Generator or General); it offers: OfxImageEffectContextTransition");
+    CHECK_THROWS(createNode("ofx:org.puke.test.Transition", "T"), "has no context puke can host");  // remembered
+    CHECK_THROWS(createNode("ofx:org.puke.test.ByteOnly", "B"), "doesn't support float images");
 }
 
 static void testNodeBasics() {
     Graph g;
-    Node& gain = ofxNode(g, "org.comp.test.Gain", "Gain1");
-    CHECK(std::string(gain.typeName()) == "ofx:org.comp.test.Gain");
+    Node& gain = ofxNode(g, "org.puke.test.Gain", "Gain1");
+    CHECK(std::string(gain.typeName()) == "ofx:org.puke.test.Gain");
     CHECK(gain.maxInputs() == 1 && !gain.inputOptional(0));
     CHECK(gain.params().empty());  // defaults stay with the plugin
 
-    Node& mask = ofxNode(g, "org.comp.test.MaskMultiply", "Mask1");
+    Node& mask = ofxNode(g, "org.puke.test.MaskMultiply", "Mask1");
     CHECK(mask.maxInputs() == 2 && !mask.inputOptional(0) && mask.inputOptional(1));
 
     Engine e;
@@ -90,8 +90,8 @@ static void testNodeBasics() {
 static void testParamSpecs() {
     Graph g;
     auto& src = source(g);
-    Node& gain = ofxNode(g, "org.comp.test.Gain", "Gain1");
-    Node& explicitDefaults = ofxNode(g, "org.comp.test.Gain", "Gain2");
+    Node& gain = ofxNode(g, "org.puke.test.Gain", "Gain1");
+    Node& explicitDefaults = ofxNode(g, "org.puke.test.Gain", "Gain2");
     g.connect(src, gain, 0);
     g.connect(src, explicitDefaults, 0);
 
@@ -117,7 +117,7 @@ static void testParamSpecs() {
 static void testGain() {
     Graph g;
     auto& src = source(g);
-    Node& gain = ofxNode(g, "org.comp.test.Gain", "Gain1");
+    Node& gain = ofxNode(g, "org.puke.test.Gain", "Gain1");
     g.connect(src, gain, 0);
     Engine e(EngineOptions{.threads = 4, .tileSize = 8});
 
@@ -160,14 +160,14 @@ static void testGain() {
 static void testErrors() {
     Graph g;
     auto& src = source(g);
-    Node& gain = ofxNode(g, "org.comp.test.Gain", "Gain1");
+    Node& gain = ofxNode(g, "org.puke.test.Gain", "Gain1");
     g.connect(src, gain, 0);
     Engine e(EngineOptions{.threads = 4, .tileSize = 8});
 
     // A plugin's own error message reaches the user, with the node's name.
     gain.setParam("fail", true);
     CHECK_THROWS(e.render(gain, {}, kData),
-                 "Gain1 (org.comp.test.Gain): OfxImageEffectActionRender failed: gain plugin asked to fail");
+                 "Gain1 (org.puke.test.Gain): OfxImageEffectActionRender failed: gain plugin asked to fail");
     gain.setParam("fail", false);
 
     // Values that don't fit the parameter.
@@ -190,11 +190,11 @@ static void testErrors() {
 
 static void testShiftAndCoordinates() {
     // Shift (3, 5) in OFX coordinates: right 3, *up* 5 - which is y - 5 in
-    // comp's y-down coordinates. Exercises the region of definition, regions
+    // puke's y-down coordinates. Exercises the region of definition, regions
     // of interest and the y flip together.
     Graph g;
     auto& src = source(g);
-    Node& shift = ofxNode(g, "org.comp.test.Shift", "Shift1");
+    Node& shift = ofxNode(g, "org.puke.test.Shift", "Shift1");
     shift.setParam("shift", Vec2{3, 5});
     g.connect(src, shift, 0);
     Engine e(EngineOptions{.threads = 4, .tileSize = 8});
@@ -215,13 +215,13 @@ static void testShiftAndCoordinates() {
 }
 
 static void testCoordinateConvention() {
-    // comp's y-down pixel rows are flipped around the display window, which
-    // lands on the same numbers in OFX: display window y 4..28 (comp) is
+    // puke's y-down pixel rows are flipped around the display window, which
+    // lands on the same numbers in OFX: display window y 4..28 (puke) is
     // OFX project y 4..28, top row 4 becoming OFX row 27. For a frame
     // starting at 0 that's OFX's usual bottom-left origin, as in Nuke.
     Graph g;
     auto& src = source(g);
-    Node& coords = ofxNode(g, "org.comp.test.Coords", "Coords1");
+    Node& coords = ofxNode(g, "org.puke.test.Coords", "Coords1");
     g.connect(src, coords, 0);
     const Image out = Engine(EngineOptions{.threads = 4, .tileSize = 8}).render(coords, {}, kData);
     bool ok = true;
@@ -240,7 +240,7 @@ static void testMaskAndThreadSafety() {
     auto& matte = g.create<SourceNode>("Matte", Box{0, 0, 20, 30}, ChannelList{"R", "G", "B", "A"},
                                        [](int x, int, int c) { return c == 3 ? (x < 10 ? 1.0f : 0.25f) : 9.0f; },
                                        kFormat);
-    Node& mul = ofxNode(g, "org.comp.test.MaskMultiply", "Mask1");
+    Node& mul = ofxNode(g, "org.puke.test.MaskMultiply", "Mask1");
     g.connect(src, mul, 0);
     Engine e(EngineOptions{.threads = 8, .tileSize = 4});
 
@@ -263,7 +263,7 @@ static void testMaskAndThreadSafety() {
         threads.emplace_back([&] {
             Graph tg;
             auto& s = source(tg);
-            Node& m = ofxNode(tg, "org.comp.test.MaskMultiply", "Mask1");
+            Node& m = ofxNode(tg, "org.puke.test.MaskMultiply", "Mask1");
             tg.connect(s, m, 0);
             Engine te(EngineOptions{.threads = 2});
             for (int i = 0; i < 10; ++i) {
@@ -282,14 +282,14 @@ static void testMaskAndThreadSafety() {
 // A generator: no inputs, the project's format as its frame.
 static void testGenerator() {
     Graph g;
-    Node& gen = ofxNode(g, "org.comp.test.Generator", "Gen1");
+    Node& gen = ofxNode(g, "org.puke.test.Generator", "Gen1");
     CHECK(gen.maxInputs() == 0);
     Engine e({.threads = 4, .tileSize = 16, .cacheBytes = 64 << 20});
     const RenderContext ctx{1, Format{64, 32}};
     const ImageInfo info = e.info(gen, ctx);
     CHECK((info.displayWindow == Box{0, 0, 64, 32}) && (info.dataWindow == Box{0, 0, 64, 32}));
     Image img = e.render(gen, ctx, info.dataWindow);
-    // OFX's y points up: comp's top row is OFX row 31.
+    // OFX's y points up: puke's top row is OFX row 31.
     const float* p = img.pixel(5, 0);
     CHECK(p[0] == 0.5f && p[1] == 5.0f && p[2] == 31.0f && p[3] == 32.0f);
     CHECK(img.pixel(63, 31)[1] == 63.0f && img.pixel(63, 31)[2] == 0.0f);
@@ -305,7 +305,7 @@ static void testGenerator() {
     CHECK(img.pixel(0, 0)[0] == 0.25f && img.pixel(0, 0)[2] == 9.0f && img.pixel(0, 0)[3] == 10.0f);
 
     // Feeding a filter.
-    Node& gain = ofxNode(g, "org.comp.test.Gain", "Gain1");
+    Node& gain = ofxNode(g, "org.puke.test.Gain", "Gain1");
     g.connect(gen, gain, 0);
     gain.setParam("gain", 2.0);
     CHECK(e.render(gain, small, {0, 0, 1, 1}).pixel(0, 0)[0] == 0.5f);
@@ -316,10 +316,10 @@ static void testGenerator() {
 static void testRenderScale() {
     Graph g;
     auto& src = source(g);
-    Node& gain = ofxNode(g, "org.comp.test.Gain", "Gain1");
+    Node& gain = ofxNode(g, "org.puke.test.Gain", "Gain1");
     g.connect(src, gain, 0);
     gain.setParam("gain", 2.0);
-    Node& shift = ofxNode(g, "org.comp.test.Shift", "Shift1");
+    Node& shift = ofxNode(g, "org.puke.test.Shift", "Shift1");
     g.connect(gain, shift, 0);
     shift.setParam("shift", Vec2{4, -2});  // canonical pixels: 2, -1 at half size
     Engine e;
@@ -333,12 +333,12 @@ static void testRenderScale() {
     (void)full;
     const Image in = e.render(src, half, hi.dataWindow);
     const Image out = e.render(shift, half, hi.dataWindow);
-    // Shifted by (2, -1) pixels at half size; OFX y is up, so comp y moves +1.
+    // Shifted by (2, -1) pixels at half size; OFX y is up, so puke y moves +1.
     CHECK(std::fabs(out.pixel(5, 5)[0] - 2 * in.pixel(3, 4)[0]) < 1e-6f);
 
     // A generator: its frame is the format at the scale; the project size it
     // sees is full size; render coordinates are pixels at the scale.
-    Node& gen = ofxNode(g, "org.comp.test.Generator", "Gen1");
+    Node& gen = ofxNode(g, "org.puke.test.Generator", "Gen1");
     const RenderContext ctx{1, Format{64, 32}, 0.5};
     const ImageInfo gi = e.info(gen, ctx);
     CHECK((gi.displayWindow == Box{0, 0, 32, 16}) && (gi.dataWindow == Box{0, 0, 32, 16}));
@@ -351,18 +351,18 @@ static void testRenderScale() {
 static void testOverlay() {
     Graph g;
     auto& src = source(g);
-    Node& point = ofxNode(g, "org.comp.test.Point", "Point1");
+    Node& point = ofxNode(g, "org.puke.test.Point", "Point1");
     g.connect(src, point, 0);
-    Node& gain = ofxNode(g, "org.comp.test.Gain", "Gain1");
+    Node& gain = ofxNode(g, "org.puke.test.Gain", "Gain1");
     CHECK(!ofx::Overlay::create(gain) && !ofx::Overlay::create(src));  // no overlay; not OFX
     auto overlay = ofx::Overlay::create(point);
     CHECK(overlay != nullptr);
     if (!overlay) return;
 
     ofx::Overlay::View view;
-    view.flipY = kFormat.y0 + kFormat.y1;  // 32: canonical y = 32 - comp y
+    view.flipY = kFormat.y0 + kFormat.y1;  // 32: canonical y = 32 - puke y
     view.time = 1;
-    // The point defaults to canonical (10, 10): comp (10, 22).
+    // The point defaults to canonical (10, 10): puke (10, 22).
     CHECK(!overlay->penDown(view, 30, 5));  // nowhere near: not the plugin's
     CHECK(overlay->penDown(view, 11, 21));
     std::vector<std::pair<std::string, ParamValue>> edits;
@@ -387,7 +387,7 @@ static void testOverlay() {
     c.setKey(1, Vec2{0, 0}, Curve::Interp::Linear);
     c.setKey(11, Vec2{20, 20}, Curve::Interp::Linear);
     point.setCurve("point", c);
-    view.time = 6;  // (10, 10): comp (10, 22)
+    view.time = 6;  // (10, 10): puke (10, 22)
     CHECK(overlay->penDown(view, 10, 22));
     CHECK(overlay->penUp(view, 10, 22));
     view.time = 11;
@@ -402,7 +402,7 @@ static void testOverlay() {
 static void testCacheAndProjects() {
     Graph g;
     auto& src = source(g);
-    Node& gain = ofxNode(g, "org.comp.test.Gain", "Gain1");
+    Node& gain = ofxNode(g, "org.puke.test.Gain", "Gain1");
     gain.setParam("gain", 0.5);
     g.connect(src, gain, 0);
 
@@ -418,17 +418,17 @@ static void testCacheAndProjects() {
     gain.setParam("gain", 0.5);
     Graph pg;
     auto& psrc = source(pg);
-    Node& pgain = ofxNode(pg, "org.comp.test.Gain", "Gain1");
+    Node& pgain = ofxNode(pg, "org.puke.test.Gain", "Gain1");
     pgain.setParam("gain", 0.5);
     pg.connect(psrc, pgain, 0);
     const std::string json = projectToJson(pg);
-    CHECK(json.find("\"type\": \"ofx:org.comp.test.Gain\"") != std::string::npos);
+    CHECK(json.find("\"type\": \"ofx:org.puke.test.Gain\"") != std::string::npos);
     CHECK(json.find("\"gain\": 0.5") != std::string::npos);
     CHECK(json.find("\"offset\"") == std::string::npos);  // unset parameters aren't written
 
     // (Source nodes are test-only, so rebuild the input by hand after loading.)
-    Graph loaded = projectFromJson(R"({"format": "comp", "version": 1, "nodes": [
-        {"name": "Gain1", "type": "ofx:org.comp.test.Gain", "params": {"gain": 0.5}}]})");
+    Graph loaded = projectFromJson(R"({"format": "puke", "version": 1, "nodes": [
+        {"name": "Gain1", "type": "ofx:org.puke.test.Gain", "params": {"gain": 0.5}}]})");
     auto& lsrc = source(loaded);
     loaded.connect(lsrc, *loaded.find("Gain1"), 0);
     CHECK(samePixels(Engine().render(*loaded.find("Gain1"), {}, kData), first));

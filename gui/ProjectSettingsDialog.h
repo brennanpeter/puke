@@ -6,7 +6,7 @@ class QComboBox;
 class QDoubleSpinBox;
 class QSpinBox;
 
-namespace compgui {
+namespace pukegui {
 
 class Document;
 
@@ -36,4 +36,4 @@ private:
     QDoubleSpinBox* fps_;
 };
 
-}  // namespace compgui
+}  // namespace pukegui

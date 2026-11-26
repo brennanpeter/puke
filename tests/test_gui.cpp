@@ -1,8 +1,8 @@
-// Drives the real comp_gui window offscreen (QT_QPA_PLATFORM=offscreen):
+// Drives the real puke_gui window offscreen (QT_QPA_PLATFORM=offscreen):
 // creating and connecting nodes, editing parameters through the properties
 // panel, the viewer's pixels, saving and loading.
 //
-// With COMP_GUI_SCREENSHOT=path.png set, saves a picture of the window at
+// With PUKE_GUI_SCREENSHOT=path.png set, saves a picture of the window at
 // the end.
 
 #include <QApplication>
@@ -40,12 +40,12 @@
 #include "TestUtil.h"
 #include "Timeline.h"
 #include "Viewer.h"
-#include "comp/core/Path.h"
-#include "comp/engine/Engine.h"
-#include "comp/nodes/Registry.h"
-#include "comp/project/Project.h"
+#include "puke/core/Path.h"
+#include "puke/engine/Engine.h"
+#include "puke/nodes/Registry.h"
+#include "puke/project/Project.h"
 
-using namespace compgui;
+using namespace pukegui;
 namespace fs = std::filesystem;
 
 namespace {
@@ -129,17 +129,17 @@ int main(int argc, char** argv) {
 
     try {
         // --- A Read, viewed: the viewer shows exactly what the engine renders.
-        comp::Node& read = doc.createNode("Read", {0, 0});
+        puke::Node& read = doc.createNode("Read", {0, 0});
         doc.setParam(read, "file", (dir / "plate.exr").string());
         doc.setViewed(&read);
         CHECK(waitForRender(viewer));
-        CHECK(viewer.canvas()->result().displayWindow == (comp::Box{0, 0, 160, 90}));
+        CHECK(viewer.canvas()->result().displayWindow == (puke::Box{0, 0, 160, 90}));
         CHECK(std::fabs(viewerPixel(viewer, 10, 20, 1) - plate(10, 20, 1)) < 1e-6f);
         CHECK(!viewer.canvas()->result().image.isNull());
         CHECK(w.windowTitle().startsWith("untitled*"));
 
         // --- A Grade, created with the Read selected: connected below it.
-        comp::Node& grade = doc.createNode("Grade", {0, 90}, &read);
+        puke::Node& grade = doc.createNode("Grade", {0, 90}, &read);
         CHECK(grade.input(0) == &read && doc.selected() == &grade);
         doc.setViewed(&grade);
         CHECK(waitForRender(viewer));
@@ -169,8 +169,8 @@ int main(int argc, char** argv) {
         CHECK(std::fabs(viewerPixel(viewer, 10, 20, 0) - plate(10, 20, 0)) < 1e-5f);
 
         // --- Transform pivots at the middle of its input's frame.
-        comp::Node& xf = doc.createNode("Transform", {0, 180}, &grade);
-        CHECK((std::get<comp::Vec2>(xf.params().at("center")) == comp::Vec2{80, 45}));
+        puke::Node& xf = doc.createNode("Transform", {0, 180}, &grade);
+        CHECK((std::get<puke::Vec2>(xf.params().at("center")) == puke::Vec2{80, 45}));
 
         // --- The Tab search creates a node connected to the selection.
         doc.setSelected(&xf);
@@ -186,11 +186,11 @@ int main(int argc, char** argv) {
             edit->setText("merg");
             emit edit->returnPressed();
         }
-        comp::Node* merge = doc.graph().find("Merge1");
+        puke::Node* merge = doc.graph().find("Merge1");
         CHECK(merge && merge->input(0) == &xf);
 
         // --- Errors show in the viewer instead of a picture.
-        comp::Node& lonely = doc.createNode("Grade", {300, 0});
+        puke::Node& lonely = doc.createNode("Grade", {300, 0});
         doc.setViewed(&lonely);
         CHECK(!waitForRender(viewer));
         CHECK(viewer.canvas()->result().error.contains("Grade2: input 0 is not connected"));
@@ -203,12 +203,12 @@ int main(int argc, char** argv) {
         merge->setParam("operation", std::string("plus"));
         for (int i = 0; i < 50; ++i) doc.setParam(grade, "multiply", 1.0 + i);
         CHECK(waitForRender(viewer));
-        comp::Engine e;
-        const comp::Image expected = e.render(*merge, {}, {0, 0, 160, 90});
+        puke::Engine e;
+        const puke::Image expected = e.render(*merge, {}, {0, 0, 160, 90});
         CHECK(std::fabs(viewerPixel(viewer, 30, 40, 2) - expected.at(30, 40, 2)) < 1e-5f);
 
         // --- An OFX plugin: its parameters come from the plugin.
-        comp::Node& gain = doc.createNode("ofx:org.comp.test.Gain", {0, 360}, merge);
+        puke::Node& gain = doc.createNode("ofx:org.puke.test.Gain", {0, 360}, merge);
         CHECK(gain.name() == "Gain1");
         CHECK(paramWidget<QDoubleSpinBox>(w, "gain") != nullptr);
         CHECK(paramWidget<QComboBox>(w, "mode") != nullptr);
@@ -216,16 +216,16 @@ int main(int argc, char** argv) {
         CHECK(waitForRender(viewer));
 
         // --- Save, then open it again.
-        const QString path = QString::fromStdString((dir / "shot.comp").string());
+        const QString path = QString::fromStdString((dir / "shot.puke").string());
         QString error;
         CHECK(doc.save(path, &error));
-        CHECK(!doc.dirty() && w.windowTitle() == "shot.comp - comp");
+        CHECK(!doc.dirty() && w.windowTitle() == "shot.puke - puke");
         doc.newDocument();
         CHECK(doc.graph().nodes().empty() && doc.viewed() == nullptr);
         CHECK(w.openProject(path));
         CHECK(doc.graph().nodes().size() == 5);  // Read, Grade, Transform, Merge, Gain
         CHECK(doc.graph().find("Merge1")->input(1) == doc.graph().find("Read1"));
-        CHECK((doc.graph().find("Grade1")->position() == comp::Vec2{0, 90}));
+        CHECK((doc.graph().find("Grade1")->position() == puke::Vec2{0, 90}));
         CHECK(doc.viewed() == doc.graph().find("Gain1"));
         CHECK(waitForRender(viewer));
 
@@ -234,10 +234,10 @@ int main(int argc, char** argv) {
         {
             QUndoStack& undo = doc.undoStack();
             CHECK(!doc.dirty() && undo.count() == 0);  // loading starts a fresh history
-            const std::string saved = comp::projectToJson(doc.graph());
-            comp::Node& g1 = *doc.graph().find("Grade1");
-            comp::Node& m1 = *doc.graph().find("Merge1");
-            comp::Node& r1 = *doc.graph().find("Read1");
+            const std::string saved = puke::projectToJson(doc.graph());
+            puke::Node& g1 = *doc.graph().find("Grade1");
+            puke::Node& m1 = *doc.graph().find("Merge1");
+            puke::Node& r1 = *doc.graph().find("Read1");
 
             for (int i = 0; i < 20; ++i) doc.setParam(g1, "mix", 0.05 * i);  // a slider drag...
             CHECK(undo.count() == 1);                                         // ...is one step
@@ -247,25 +247,25 @@ int main(int argc, char** argv) {
             doc.moveNodes({{&g1, QPointF(300, 90)}, {&r1, QPointF(300, 0)}});
             doc.disconnect(m1, 1);
             CHECK_THROWS(doc.connectNodes(*doc.graph().find("Gain1"), r1, 0), "Read1");  // a cycle, and Read has no inputs
-            comp::Node& extra = doc.createNode("ColorSpace", {500, 0}, &m1);
+            puke::Node& extra = doc.createNode("ColorSpace", {500, 0}, &m1);
             doc.setParam(extra, "out", std::string("ACEScct"));
             doc.setViewed(&g1);
             doc.removeNodes({&g1, doc.graph().find("Transform1")});  // viewed, mid-chain
             CHECK(doc.graph().nodes().size() == 4 && doc.viewed() == nullptr);
             CHECK(doc.dirty());
-            const std::string edited = comp::projectToJson(doc.graph());
+            const std::string edited = puke::projectToJson(doc.graph());
 
             const int steps = undo.count();
             CHECK(steps == 8);
             while (undo.canUndo()) undo.undo();
-            CHECK(comp::projectToJson(doc.graph()) == saved);
+            CHECK(puke::projectToJson(doc.graph()) == saved);
             CHECK(!doc.dirty() && doc.viewed() == doc.graph().find("Grade1"));  // the deleted, viewed node is back
             CHECK(doc.graph().find("Transform1")->input(0) == doc.graph().find("Grade1"));
             CHECK(waitForRender(viewer));
             while (undo.canRedo()) undo.redo();
-            CHECK(comp::projectToJson(doc.graph()) == edited);
+            CHECK(puke::projectToJson(doc.graph()) == edited);
             while (undo.canUndo()) undo.undo();
-            CHECK(comp::projectToJson(doc.graph()) == saved);
+            CHECK(puke::projectToJson(doc.graph()) == saved);
 
             // A new edit after undoing drops the redo history, as usual.
             doc.setParam(*doc.graph().find("Grade1"), "mix", 0.5);
@@ -279,9 +279,9 @@ int main(int argc, char** argv) {
             QUndoStack& undo = doc.undoStack();
             NodeGraphView& gv = w.graphView();
             auto find = [&](const char* n) { return doc.graph().find(n); };
-            comp::Node& g1 = *find("Grade1");
-            comp::Node& x1 = *find("Transform1");
-            const std::string saved = comp::projectToJson(doc.graph());
+            puke::Node& g1 = *find("Grade1");
+            puke::Node& x1 = *find("Transform1");
+            const std::string saved = puke::projectToJson(doc.graph());
 
             // Two connected nodes, pasted: renamed, still connected to each
             // other, but not to Read1, which wasn't copied.
@@ -289,10 +289,10 @@ int main(int argc, char** argv) {
             CHECK(pasted.size() == 2 && pasted[0]->name() == "Grade2" && pasted[1]->name() == "Transform2");
             CHECK(pasted[1]->input(0) == pasted[0] && pasted[0]->input(0) == nullptr);
             CHECK(pasted[0]->params() == g1.params());
-            CHECK((pasted[0]->position() == comp::Vec2{200, 100}));
+            CHECK((pasted[0]->position() == puke::Vec2{200, 100}));
             CHECK(undo.count() == 1);
             undo.undo();
-            CHECK(comp::projectToJson(doc.graph()) == saved);
+            CHECK(puke::projectToJson(doc.graph()) == saved);
             CHECK_THROWS(doc.pasteNodes("not a project", {}), "pasted nodes");
             CHECK(undo.count() == 1);  // nothing recorded
 
@@ -302,7 +302,7 @@ int main(int argc, char** argv) {
             CHECK(QGuiApplication::clipboard()->text().contains("\"Grade1\""));
             gv.paste();
             CHECK(find("Grade2") && doc.selected() == find("Grade2"));
-            CHECK(gv.selectedNodes() == std::vector<comp::Node*>{find("Grade2")});
+            CHECK(gv.selectedNodes() == std::vector<puke::Node*>{find("Grade2")});
             gv.duplicateSelection();
             CHECK(find("Grade3") && doc.selected() == find("Grade3"));
             gv.cutSelection();
@@ -324,17 +324,17 @@ int main(int argc, char** argv) {
 
             // A backdrop around two nodes: sized to hold them.
             doc.removeNodes({find("Grade2"), find("Grade3")});  // the copies, out of the way
-            comp::Node& read1 = *find("Read1");
+            puke::Node& read1 = *find("Read1");
             gv.selectNodes({&read1, &g1});
             CHECK(gv.selectedNodes().size() == 2);
             const int stepsBefore = undo.count();
             gv.createAt("Backdrop", {});
-            comp::Node* bd = find("Backdrop1");
+            puke::Node* bd = find("Backdrop1");
             CHECK(bd && undo.count() == stepsBefore + 1);
             if (bd) {
-                const comp::Vec2 at = *bd->position(), size = bd->vec2Param("size", {});
-                for (comp::Node* n : {&read1, &g1}) {
-                    const comp::Vec2 p = *n->position();
+                const puke::Vec2 at = *bd->position(), size = bd->vec2Param("size", {});
+                for (puke::Node* n : {&read1, &g1}) {
+                    const puke::Vec2 p = *n->position();
                     CHECK(p[0] > at[0] && p[0] < at[0] + size[0] && p[1] > at[1] && p[1] < at[1] + size[1]);
                 }
 
@@ -351,14 +351,14 @@ int main(int argc, char** argv) {
                 };
                 gv.selectNodes({});
                 const QPointF grab(at[0] + 30, at[1] + 10);
-                const comp::Vec2 heroBefore = *g1.position();
+                const puke::Vec2 heroBefore = *g1.position();
                 const int s0 = undo.count();
                 mouse(QEvent::MouseButtonPress, grab, Qt::LeftButton);
                 mouse(QEvent::MouseMove, grab + QPointF(20, 10), Qt::LeftButton);
                 mouse(QEvent::MouseMove, grab + QPointF(60, 40), Qt::LeftButton);
                 mouse(QEvent::MouseButtonRelease, grab + QPointF(60, 40), Qt::NoButton);
-                CHECK((*bd->position() == comp::Vec2{at[0] + 60, at[1] + 40}));
-                CHECK((*g1.position() == comp::Vec2{heroBefore[0] + 60, heroBefore[1] + 40}));
+                CHECK((*bd->position() == puke::Vec2{at[0] + 60, at[1] + 40}));
+                CHECK((*g1.position() == puke::Vec2{heroBefore[0] + 60, heroBefore[1] + 40}));
                 CHECK(undo.count() == s0 + 1);
 
                 // Its bottom-right corner resizes it.
@@ -368,13 +368,13 @@ int main(int argc, char** argv) {
                 mouse(QEvent::MouseButtonPress, corner, Qt::LeftButton);
                 mouse(QEvent::MouseMove, corner + QPointF(50, 30), Qt::LeftButton);
                 mouse(QEvent::MouseButtonRelease, corner + QPointF(50, 30), Qt::NoButton);
-                CHECK((bd->vec2Param("size", {}) == comp::Vec2{size[0] + 50, size[1] + 30}));
-                CHECK((*g1.position() == comp::Vec2{heroBefore[0] + 60, heroBefore[1] + 40}));  // nodes stay
+                CHECK((bd->vec2Param("size", {}) == puke::Vec2{size[0] + 50, size[1] + 30}));
+                CHECK((*g1.position() == puke::Vec2{heroBefore[0] + 60, heroBefore[1] + 40}));  // nodes stay
                 CHECK(undo.count() == s0 + 2);
             }
 
             while (undo.canUndo()) undo.undo();
-            CHECK(comp::projectToJson(doc.graph()) == saved);
+            CHECK(puke::projectToJson(doc.graph()) == saved);
         }
 
         // --- Frame range, the timeline, playback and the viewer's frame cache.
@@ -382,7 +382,7 @@ int main(int argc, char** argv) {
             QUndoStack& undo = doc.undoStack();
             Timeline& tl = w.timeline();
             const int steps0 = undo.index();
-            comp::Node& seq = doc.createNode("Read", {400, 0});
+            puke::Node& seq = doc.createNode("Read", {400, 0});
             doc.setParam(seq, "file", (dir / "seq.####.exr").string());
             doc.setViewed(&seq);
 
@@ -392,12 +392,12 @@ int main(int argc, char** argv) {
             CHECK(first && last);
             last->setValue(1003);
             first->setValue(1001);
-            CHECK((doc.settings() == comp::ProjectSettings{1001, 1003, 24}));
+            CHECK((doc.settings() == puke::ProjectSettings{1001, 1003, 24}));
             CHECK(undo.index() == steps0 + 4);
             first->setValue(1005);  // past the last: the last follows
-            CHECK((doc.settings() == comp::ProjectSettings{1005, 1005, 24}));
+            CHECK((doc.settings() == puke::ProjectSettings{1005, 1005, 24}));
             undo.undo();
-            CHECK((doc.settings() == comp::ProjectSettings{1001, 1003, 24}) && first->value() == 1001);
+            CHECK((doc.settings() == puke::ProjectSettings{1001, 1003, 24}) && first->value() == 1001);
 
             tl.goToStart();
             CHECK(doc.frame() == 1001 && find<QSpinBox>(tl, "timelineFrame")->value() == 1001);
@@ -427,7 +427,7 @@ int main(int argc, char** argv) {
             CHECK(doc.frame() == 1003);
 
             // An edit drops the frames it changes, and only those.
-            comp::Node& g = doc.createNode("Grade", {400, 90}, &seq);
+            puke::Node& g = doc.createNode("Grade", {400, 90}, &seq);
             CHECK((viewer.cachedFrames() == std::vector<int>{1001, 1002, 1003}));  // not upstream of the viewed Read
             doc.setViewed(&g);  // a different node: different pictures
             CHECK(viewer.cachedFrames().empty());
@@ -443,7 +443,7 @@ int main(int argc, char** argv) {
             }
             // A node off to the side, and edits to it: the cache stays, and
             // the current frame shows without a render.
-            comp::Node& side = doc.createNode("Grade", {600, 90}, &seq);
+            puke::Node& side = doc.createNode("Grade", {600, 90}, &seq);
             doc.setParam(side, "multiply", 5.0);
             CHECK(!viewer.busy() && (viewer.cachedFrames() == std::vector<int>{1001, 1002, 1003}));
             // Animating it: a key at 1002 with the same value changes no
@@ -494,7 +494,7 @@ int main(int argc, char** argv) {
             doc.setFrame(1002);
             CHECK(!viewer.busy() && std::fabs(viewerPixel(viewer, 5, 5, 0) - 0.2f) < 1e-6f);
             // A frame that fails isn't tried again and again.
-            comp::ProjectSettings wide = doc.settings();
+            puke::ProjectSettings wide = doc.settings();
             wide.lastFrame = 1005;  // seq.1004 and 1005 don't exist
             doc.setSettings(wide);
             const int asked = viewer.backgroundRequests();
@@ -521,14 +521,14 @@ int main(int argc, char** argv) {
 
             // Saved and loaded with the project; a loaded project starts at
             // its first frame.
-            const QString path = QString::fromStdString((dir / "ranged.comp").string());
+            const QString path = QString::fromStdString((dir / "ranged.puke").string());
             QString error;
             CHECK(doc.save(path, &error));
             doc.newDocument();
-            CHECK((doc.settings() == comp::ProjectSettings{}) && doc.frame() == 1);
+            CHECK((doc.settings() == puke::ProjectSettings{}) && doc.frame() == 1);
             CHECK(first->value() == 1 && last->value() == 1);
             CHECK(w.openProject(path));
-            CHECK((doc.settings() == comp::ProjectSettings{1001, 1003, 24}) && doc.frame() == 1001);
+            CHECK((doc.settings() == puke::ProjectSettings{1001, 1003, 24}) && doc.frame() == 1001);
             CHECK(last->value() == 1003);
         }
 
@@ -552,11 +552,11 @@ int main(int argc, char** argv) {
 
             // Read2 (the sequence) -> Grade2 (x2) -> Write. The dialog offers
             // the selected Write and the project's range.
-            comp::Node& g2 = *doc.graph().find("Grade2");
-            comp::Node& write = doc.createNode("Write", {400, 180}, &g2);
+            puke::Node& g2 = *doc.graph().find("Grade2");
+            puke::Node& write = doc.createNode("Write", {400, 180}, &g2);
             doc.setParam(write, "file", (dir / "out/r.####.exr").string());
             doc.setParam(write, "datatype", std::string("float"));
-            comp::Node& other = doc.createNode("Write", {600, 180}, &g2);
+            puke::Node& other = doc.createNode("Write", {600, 180}, &g2);
             doc.setParam(other, "file", (dir / "out/other.####.exr").string());
             doc.setSelected(&write);
             w.showRenderDialog();
@@ -575,10 +575,10 @@ int main(int argc, char** argv) {
             CHECK(find<QProgressBar>(rd, "renderProgress")->value() == 3);
             CHECK(log && log->toPlainText().contains("frame 1002 Write1 -> "));
             CHECK(find<QLabel>(rd, "renderStatus")->text() == "Finished: 3 files written.");
-            comp::Engine e;
+            puke::Engine e;
             for (int f = 1001; f <= 1003; ++f) {
-                comp::Graph check;
-                comp::Node& r = check.add(comp::createNode("Read", "R"));
+                puke::Graph check;
+                puke::Node& r = check.add(puke::createNode("Read", "R"));
                 r.setParam("file", (dir / ("out/r." + std::to_string(f) + ".exr")).string());
                 CHECK(std::fabs(e.render(r, {}, {5, 5, 6, 6}).pixel(5, 5)[0] - 0.2f * (f - 1000)) < 1e-6f);
             }
@@ -623,13 +623,13 @@ int main(int argc, char** argv) {
             test::ExrOptions big;
             big.dataWindow = big.displayWindow = {0, 0, 1600, 900};
             test::writeImage((dir / "big.exr").string(), big, plate);
-            comp::Node& r = doc.createNode("Read", {800, 0});
+            puke::Node& r = doc.createNode("Read", {800, 0});
             doc.setParam(r, "file", (dir / "big.exr").string());
             ViewerCanvas* canvas = viewer.canvas();
             doc.setViewed(&r);
             CHECK(waitFor([&] { return !viewer.busy(); }));
-            const comp::Box full = canvas->result().full;
-            CHECK((full == comp::Box{0, 0, 1600, 900}));
+            const puke::Box full = canvas->result().full;
+            CHECK((full == puke::Box{0, 0, 1600, 900}));
             canvas->fit();  // the whole frame on screen: all of it rendered
             CHECK(waitFor([&] { return !viewer.busy() && canvas->result().region == full; }));
 
@@ -647,7 +647,7 @@ int main(int argc, char** argv) {
             CHECK(waitFor([&] { return renders > 0 && !viewer.busy(); }));
             auto visible = canvas->visibleRegion();
             CHECK(visible && visible->width() < 1600);
-            const comp::Box region = canvas->result().region;
+            const puke::Box region = canvas->result().region;
             CHECK(region.area() < full.area() && visible->padded(200).intersect(region) == region);
             CHECK(region.intersect(*visible) == visible->intersect(full));  // all of what's on screen
             CHECK(std::fabs(viewerPixel(viewer, 800, 450, 1) - plate(800, 450, 1)) < 1e-6f);
@@ -677,13 +677,13 @@ int main(int argc, char** argv) {
         // --- Project format: the settings dialog, and generators following it.
         {
             QUndoStack& undo = doc.undoStack();
-            comp::Node& c = doc.createNode("Constant", {1000, 0});
-            doc.setParam(c, "color", comp::Color{0.5, 0.25, 0.125, 1});
+            puke::Node& c = doc.createNode("Constant", {1000, 0});
+            doc.setParam(c, "color", puke::Color{0.5, 0.25, 0.125, 1});
             doc.setViewed(&c);
             CHECK(waitFor([&] { return !viewer.busy(); }));
-            CHECK((viewer.canvas()->result().full == comp::Box{0, 0, 1920, 1080}));
+            CHECK((viewer.canvas()->result().full == puke::Box{0, 0, 1920, 1080}));
 
-            const comp::ProjectSettings before = doc.settings();
+            const puke::ProjectSettings before = doc.settings();
             ProjectSettingsDialog dlg(doc);
             auto* preset = find<QComboBox>(dlg, "settingsPreset");
             auto* width = find<QSpinBox>(dlg, "settingsWidth");
@@ -700,23 +700,23 @@ int main(int argc, char** argv) {
 
             const int steps = undo.index();
             CHECK(dlg.apply());
-            CHECK((doc.settings().format == comp::Format{200, 100}) && undo.index() == steps + 1);
+            CHECK((doc.settings().format == puke::Format{200, 100}) && undo.index() == steps + 1);
             CHECK(doc.settings().firstFrame == before.firstFrame && doc.settings().fps == before.fps);
             // The viewer renders again in the new format.
-            CHECK(waitFor([&] { return !viewer.busy() && viewer.canvas()->result().full == comp::Box{0, 0, 200, 100}; }));
+            CHECK(waitFor([&] { return !viewer.busy() && viewer.canvas()->result().full == puke::Box{0, 0, 200, 100}; }));
             CHECK(std::fabs(viewerPixel(viewer, 199, 99, 1) - 0.25f) < 1e-6f);
             // Nodes that start from their input's frame see the project format.
-            comp::Node& crop = doc.createNode("Crop", {1000, 90}, &c);
-            CHECK((crop.vec2Param("box_min", {}) == comp::Vec2{0, 0}) && (crop.vec2Param("box_max", {}) == comp::Vec2{200, 100}));
-            comp::Node& xf2 = doc.createNode("Transform", {1100, 90}, &c);
-            CHECK((xf2.vec2Param("center", {}) == comp::Vec2{100, 50}));
+            puke::Node& crop = doc.createNode("Crop", {1000, 90}, &c);
+            CHECK((crop.vec2Param("box_min", {}) == puke::Vec2{0, 0}) && (crop.vec2Param("box_max", {}) == puke::Vec2{200, 100}));
+            puke::Node& xf2 = doc.createNode("Transform", {1100, 90}, &c);
+            CHECK((xf2.vec2Param("center", {}) == puke::Vec2{100, 50}));
             undo.undo();
             undo.undo();
             undo.undo();
             CHECK(doc.settings() == before);
-            CHECK(waitFor([&] { return !viewer.busy() && viewer.canvas()->result().full == comp::Box{0, 0, 1920, 1080}; }));
+            CHECK(waitFor([&] { return !viewer.busy() && viewer.canvas()->result().full == puke::Box{0, 0, 1920, 1080}; }));
             // Range and fps alone don't need a render.
-            comp::ProjectSettings s = doc.settings();
+            puke::ProjectSettings s = doc.settings();
             s.fps = 30;
             doc.setSettings(s);
             CHECK(!viewer.busy() && !viewer.cachedFrames().empty());
@@ -730,7 +730,7 @@ int main(int argc, char** argv) {
             ViewerCanvas* canvas = viewer.canvas();
             RotoTool* tool = viewer.rotoTool();
             auto* draw = find<QToolButton>(viewer, "rotoDraw");
-            comp::Node& roto = doc.createNode("Roto", {1200, 0});
+            puke::Node& roto = doc.createNode("Roto", {1200, 0});
             doc.setSelected(nullptr);
             CHECK(draw && draw->isHidden() && !tool->node());
             doc.setSelected(&roto);
@@ -785,15 +785,15 @@ int main(int argc, char** argv) {
             click({80, 60});
             CHECK((tool->selection() == std::pair{0, 2}));
             dragTo({90, 60}, {80, 70});
-            const comp::Path p = comp::Path::parse(shape());
+            const puke::Path p = puke::Path::parse(shape());
             const auto& k = p.curves()[0][2];
-            CHECK((k.out == comp::Path::Point{80, 70}) && (k.in == comp::Path::Point{80, 50}));
+            CHECK((k.out == puke::Path::Point{80, 70}) && (k.in == puke::Path::Point{80, 50}));
             CHECK(undo.index() == steps + 6);
 
             // Double-click: smooth <-> corner.
             mouse(QEvent::MouseButtonDblClick, {20, 20}, Qt::LeftButton);
             mouse(QEvent::MouseButtonRelease, {20, 20}, Qt::NoButton);
-            CHECK(comp::Path::parse(shape()).curves()[0][0].out != comp::Path::Point({20, 20}));
+            CHECK(puke::Path::parse(shape()).curves()[0][0].out != puke::Path::Point({20, 20}));
             CHECK(undo.index() == steps + 7);
 
             // Delete removes the selected point, and the viewer claims the key
@@ -803,7 +803,7 @@ int main(int argc, char** argv) {
             CHECK(over.isAccepted());
             QKeyEvent del(QEvent::KeyPress, Qt::Key_Delete, Qt::NoModifier);
             QApplication::sendEvent(canvas, &del);
-            CHECK(comp::Path::parse(shape()).curves()[0].size() == 3 && doc.graph().find("Roto1"));
+            CHECK(puke::Path::parse(shape()).curves()[0].size() == 3 && doc.graph().find("Roto1"));
             CHECK(!tool->selection());
             QKeyEvent over2(QEvent::ShortcutOverride, Qt::Key_Delete, Qt::NoModifier);
             QApplication::sendEvent(canvas, &over2);
@@ -811,7 +811,7 @@ int main(int argc, char** argv) {
 
             // Undo goes back point by point.
             undo.undo();
-            CHECK(comp::Path::parse(shape()).curves()[0].size() == 4);
+            CHECK(puke::Path::parse(shape()).curves()[0].size() == 4);
             while (undo.index() > steps) undo.undo();
             CHECK(shape().empty());
 
@@ -823,7 +823,7 @@ int main(int argc, char** argv) {
             click({60, 60});  // a new curve
             click({70, 60});
             click({70, 70});
-            CHECK(comp::Path::parse(shape()).curves().size() == 2);
+            CHECK(puke::Path::parse(shape()).curves().size() == 2);
             doc.setSelected(nullptr);  // leaving the node ends drawing
             CHECK(!tool->drawing() && draw->isHidden());
             doc.removeNode(roto);
@@ -832,11 +832,11 @@ int main(int argc, char** argv) {
         // --- Animation: keys from the properties panel, values per frame.
         {
             QUndoStack& undo = doc.undoStack();
-            comp::Node& g1 = *doc.graph().find("Grade1");
+            puke::Node& g1 = *doc.graph().find("Grade1");
             doc.setSelected(&g1);
             doc.setViewed(&g1);
             doc.setFrame(1001);
-            const std::string before = comp::projectToJson(doc.graph());
+            const std::string before = puke::projectToJson(doc.graph());
             doc.setParam(g1, "multiply", 2.0);  // something for mix to blend
             QApplication::processEvents();
             auto* key = find<QToolButton>(w.properties(), "key_mix");
@@ -856,7 +856,7 @@ int main(int argc, char** argv) {
             CHECK(g1.curve("mix")->keys().size() == 2 && undo.index() == steps + 3);
             // Between keys the panel shows the curve's value; linear makes it exact.
             doc.setFrame(1001);
-            doc.setInterp(g1, "mix", comp::Curve::Interp::Linear);
+            doc.setInterp(g1, "mix", puke::Curve::Interp::Linear);
             doc.setFrame(1002);
             CHECK(std::fabs(mix->value() - 0.6) < 1e-9);
             // The timeline marks the keys.
@@ -879,12 +879,12 @@ int main(int argc, char** argv) {
             doc.setFrame(1001);
             key->click();
             CHECK(!g1.animated("mix") && std::get<double>(g1.params().at("mix")) == 0.2);
-            while (comp::projectToJson(doc.graph()) != before && undo.canUndo()) undo.undo();
-            CHECK(comp::projectToJson(doc.graph()) == before && undo.index() >= steps - 1);
+            while (puke::projectToJson(doc.graph()) != before && undo.canUndo()) undo.undo();
+            CHECK(puke::projectToJson(doc.graph()) == before && undo.index() >= steps - 1);
 
             // An animated Roto shape: dragging a point at another frame keys
             // the shape there, and frames between move the point part way.
-            comp::Node& roto = doc.createNode("Roto", {1300, 0});
+            puke::Node& roto = doc.createNode("Roto", {1300, 0});
             doc.setParam(roto, "shape", std::string("M 20 20 L 60 20 L 60 60 L 20 60 Z"));
             doc.setSelected(&roto);
             doc.setViewed(&roto);
@@ -898,7 +898,7 @@ int main(int argc, char** argv) {
             tool->release({70, 80});
             CHECK(roto.curve("shape")->keys().size() == 2);
             doc.setFrame(1002);
-            const comp::Path mid = comp::Path::parse(std::get<std::string>(*roto.valueAt("shape", 1002)));
+            const puke::Path mid = puke::Path::parse(std::get<std::string>(*roto.valueAt("shape", 1002)));
             const auto p2 = mid.curves()[0][2].point;
             CHECK(p2[0] > 60 && p2[0] < 70 && p2[1] > 60 && p2[1] < 80);
             // The tool edits what's on screen at this frame.
@@ -910,14 +910,14 @@ int main(int argc, char** argv) {
         // --- The curve editor.
         {
             QUndoStack& undo = doc.undoStack();
-            comp::Node& g1 = *doc.graph().find("Grade1");
-            const std::string before = comp::projectToJson(doc.graph());
+            puke::Node& g1 = *doc.graph().find("Grade1");
+            const std::string before = puke::projectToJson(doc.graph());
             doc.setSelected(&g1);
             doc.setFrame(1001);
             doc.setKey(g1, "mix", 0.0);
             doc.setFrame(1003);
             doc.setKey(g1, "mix", 1.0);
-            doc.setKey(g1, "gain", comp::Color{1, 1, 1, 1});
+            doc.setKey(g1, "gain", puke::Color{1, 1, 1, 1});
             w.bottomTabs().setCurrentWidget(&w.curveEditor());
             QApplication::processEvents();
             CurveEditor& ce = w.curveEditor();
@@ -950,7 +950,7 @@ int main(int argc, char** argv) {
             CHECK(undo.index() == steps);  // selecting isn't an edit
             const QPointF to = view->toWidget(1005, 1.5);
             drag(k1, to);
-            const comp::Curve* c = g1.curve("mix");
+            const puke::Curve* c = g1.curve("mix");
             CHECK(c->keys().size() == 2 && c->keys()[1].frame == 1005);  // whole frames
             CHECK(std::fabs(std::get<double>(c->keys()[1].value) - 1.5) < 0.05);
             CHECK(undo.index() == steps + 1 && view->selection()[0].frame == 1005);
@@ -963,8 +963,8 @@ int main(int argc, char** argv) {
             CHECK((g1.curve("mix")->keys()[1].slope == std::vector<double>{0}));
             view->setTangents(false);
             CHECK(g1.curve("mix")->keys()[1].slope.empty());
-            view->setInterp(comp::Curve::Interp::Constant);
-            CHECK(g1.curve("mix")->keys()[1].interp == comp::Curve::Interp::Constant);
+            view->setInterp(puke::Curve::Interp::Constant);
+            CHECK(g1.curve("mix")->keys()[1].interp == puke::Curve::Interp::Constant);
             CHECK(undo.index() == steps + 5);
 
             // Shift-click adds the other key; dragging moves both.
@@ -988,8 +988,8 @@ int main(int argc, char** argv) {
             CHECK(g1.curve("mix")->keys().size() == 2 && view->selection().empty() && doc.graph().find("Grade1"));
 
             // Undo takes it all back, step by step.
-            while (comp::projectToJson(doc.graph()) != before && undo.canUndo()) undo.undo();
-            CHECK(comp::projectToJson(doc.graph()) == before);
+            while (puke::projectToJson(doc.graph()) != before && undo.canUndo()) undo.undo();
+            CHECK(puke::projectToJson(doc.graph()) == before);
             QApplication::processEvents();
             CHECK(ce.list()->count() == 0 && view->curves().empty());
             w.bottomTabs().setCurrentIndex(0);
@@ -997,7 +997,7 @@ int main(int argc, char** argv) {
 
         // --- Proxy in the viewer.
         {
-            comp::Node& read1 = *doc.graph().find("Read1");
+            puke::Node& read1 = *doc.graph().find("Read1");
             doc.setViewed(&read1);
             ViewerCanvas* canvas = viewer.canvas();
             CHECK(waitFor([&] { return !viewer.busy(); }));
@@ -1009,15 +1009,15 @@ int main(int argc, char** argv) {
             proxy->setCurrentText("1/2");
             CHECK(waitFor([&] { return !viewer.busy() && canvas->result().scale == 0.5; }));
             // Half-size pixels: each the average of four full-size ones.
-            CHECK((canvas->result().displayWindow == comp::Box{0, 0, 80, 45}));
-            CHECK((canvas->result().fullFrame == comp::Box{0, 0, 160, 90}));  // the full-size frame, for drawing
+            CHECK((canvas->result().displayWindow == puke::Box{0, 0, 80, 45}));
+            CHECK((canvas->result().fullFrame == puke::Box{0, 0, 160, 90}));  // the full-size frame, for drawing
             const float avg = (plate(20, 10, 1) + plate(21, 10, 1) + plate(20, 11, 1) + plate(21, 11, 1)) / 4;
             CHECK(std::fabs(viewerPixel(viewer, 10, 5, 1) - avg) < 1e-5f);
             // The view didn't move: drawing and editing stay in full-size pixels.
             CHECK(canvas->visibleRegion() == visibleBefore);
 
             // Roto points are picked at full-size positions in a proxy view.
-            comp::Node& roto = doc.createNode("Roto", {1400, 0}, &read1);
+            puke::Node& roto = doc.createNode("Roto", {1400, 0}, &read1);
             doc.setParam(roto, "shape", std::string("M 20 20 L 60 20 L 60 60 Z"));
             doc.setSelected(&roto);
             doc.setViewed(&roto);
@@ -1036,8 +1036,8 @@ int main(int argc, char** argv) {
         // --- An OFX overlay: the selected node's plugin takes the mouse first.
         {
             QUndoStack& undo = doc.undoStack();
-            comp::Node& read1 = *doc.graph().find("Read1");
-            comp::Node& point = doc.createNode("ofx:org.comp.test.Point", {1500, 0}, &read1);
+            puke::Node& read1 = *doc.graph().find("Read1");
+            puke::Node& point = doc.createNode("ofx:org.puke.test.Point", {1500, 0}, &read1);
             doc.setSelected(&point);
             doc.setViewed(&point);
             CHECK(waitFor([&] { return !viewer.busy(); }));
@@ -1045,7 +1045,7 @@ int main(int argc, char** argv) {
             canvas->fit();
             QApplication::processEvents();
             const int steps = undo.index();
-            // The point defaults to canonical (10, 10): comp (10, 90 - 10).
+            // The point defaults to canonical (10, 10): puke (10, 90 - 10).
             auto mouse = [&](QEvent::Type t, QPointF image, Qt::MouseButtons held) {
                 const QPointF w = canvas->toWidget(image);
                 QMouseEvent e(t, w, canvas->mapToGlobal(w), Qt::LeftButton, held, Qt::NoModifier);
@@ -1055,12 +1055,12 @@ int main(int argc, char** argv) {
             mouse(QEvent::MouseMove, {20, 70}, Qt::LeftButton);
             mouse(QEvent::MouseMove, {40, 50}, Qt::LeftButton);
             mouse(QEvent::MouseButtonRelease, {40, 50}, Qt::NoButton);
-            CHECK(point.hasParam("point") && (std::get<comp::Vec2>(point.params().at("point")) == comp::Vec2{40, 40}));
+            CHECK(point.hasParam("point") && (std::get<puke::Vec2>(point.params().at("point")) == puke::Vec2{40, 40}));
             CHECK(undo.index() == steps + 1);  // the whole drag, one step
             // A key the plugin handles: R resets.
             QKeyEvent r(QEvent::KeyPress, Qt::Key_R, Qt::NoModifier, "r");
             QApplication::sendEvent(canvas, &r);
-            CHECK((std::get<comp::Vec2>(point.params().at("point")) == comp::Vec2{10, 10}) && undo.index() == steps + 2);
+            CHECK((std::get<puke::Vec2>(point.params().at("point")) == puke::Vec2{10, 10}) && undo.index() == steps + 2);
             // A click away from the point isn't the plugin's.
             mouse(QEvent::MouseButtonPress, {100, 20}, Qt::LeftButton);
             mouse(QEvent::MouseButtonRelease, {100, 20}, Qt::NoButton);
@@ -1077,21 +1077,21 @@ int main(int argc, char** argv) {
             doc.removeNode(point);
         }
 
-        if (const char* shot = std::getenv("COMP_GUI_SCREENSHOT")) {
-            doc.setParam(*doc.graph().find("Grade1"), "multiply", comp::Color{1.4, 1.1, 0.8, 1});
+        if (const char* shot = std::getenv("PUKE_GUI_SCREENSHOT")) {
+            doc.setParam(*doc.graph().find("Grade1"), "multiply", puke::Color{1.4, 1.1, 0.8, 1});
             doc.setParam(*doc.graph().find("Transform1"), "rotate", 12.0);
-            doc.setParam(*doc.graph().find("Transform1"), "scale", comp::Vec2{0.6, 0.6});
+            doc.setParam(*doc.graph().find("Transform1"), "scale", puke::Vec2{0.6, 0.6});
             doc.setParam(*doc.graph().find("Merge1"), "operation", std::string("over"));
             doc.setSelected(doc.graph().find("Grade1"));
             w.graphView().selectNodes({doc.graph().find("Read1"), doc.graph().find("Grade1"), doc.graph().find("Transform1")});
             w.graphView().createAt("Backdrop", {});
             doc.setParam(*doc.graph().find("Backdrop1"), "label", std::string("Plate prep"));
             // A Roto over the result, selected, so its shape shows in the viewer.
-            comp::Node& roto = doc.createNode("Roto", {0, 400}, doc.graph().find("Merge1"));
+            puke::Node& roto = doc.createNode("Roto", {0, 400}, doc.graph().find("Merge1"));
             doc.setParam(roto, "shape", std::string("M 30 20 C 70 5 120 20 125 45 L 95 80 C 60 85 20 70 30 20 Z"));
             doc.setParam(roto, "feather", 6.0);
             doc.setParam(roto, "output", std::string("rgba"));
-            doc.setParam(roto, "color", comp::Color{0.9, 0.5, 0.2, 0.6});
+            doc.setParam(roto, "color", puke::Color{0.9, 0.5, 0.2, 0.6});
             doc.setSelected(&roto);
             doc.setViewed(&roto);
             CHECK(waitForRender(viewer));

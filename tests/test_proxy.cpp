@@ -10,12 +10,12 @@
 #include <unistd.h>
 
 #include "TestUtil.h"
-#include "comp/engine/Engine.h"
-#include "comp/graph/Graph.h"
-#include "comp/nodes/Registry.h"
+#include "puke/engine/Engine.h"
+#include "puke/graph/Graph.h"
+#include "puke/nodes/Registry.h"
 
 namespace fs = std::filesystem;
-using namespace comp;
+using namespace puke;
 
 namespace {
 
@@ -176,7 +176,7 @@ static void testNodes() {
 }
 
 int main() {
-    g_dir = fs::temp_directory_path() / ("comp_proxy_" + std::to_string(::getpid()));
+    g_dir = fs::temp_directory_path() / ("puke_proxy_" + std::to_string(::getpid()));
     fs::create_directories(g_dir);
     test::ExrOptions o;
     o.dataWindow = kData;

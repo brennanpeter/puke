@@ -7,7 +7,7 @@
 
 #include <GL/gl.h>
 
-namespace compgui {
+namespace pukegui {
 
 OverlayRenderer::OverlayRenderer() = default;
 
@@ -37,7 +37,7 @@ bool OverlayRenderer::available() {
     return true;
 }
 
-QImage OverlayRenderer::render(comp::ofx::Overlay& overlay, const comp::ofx::Overlay::View& view, QSize size,
+QImage OverlayRenderer::render(puke::ofx::Overlay& overlay, const puke::ofx::Overlay::View& view, QSize size,
                                const std::array<double, 4>& rect) {
     if (size.isEmpty() || !available() || !context_->makeCurrent(surface_.get())) return {};
     if (!fbo_ || fbo_->size() != size) fbo_ = std::make_unique<QOpenGLFramebufferObject>(size);
@@ -61,4 +61,4 @@ QImage OverlayRenderer::render(comp::ofx::Overlay& overlay, const comp::ofx::Ove
     return image;
 }
 
-}  // namespace compgui
+}  // namespace pukegui

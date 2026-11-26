@@ -1,5 +1,5 @@
-// Runs the real comp_render executable and checks exit codes, messages and output files.
-// COMP_RENDER_PATH is set by CMake to the built binary.
+// Runs the real puke_render executable and checks exit codes, messages and output files.
+// PUKE_RENDER_PATH is set by CMake to the built binary.
 
 #include <algorithm>
 #include <cmath>
@@ -13,10 +13,10 @@
 #include <OpenImageIO/imageio.h>
 
 #include "TestUtil.h"
-#include "comp/graph/Graph.h"
-#include "comp/engine/Engine.h"
-#include "comp/nodes/Registry.h"
-#include "comp/color/ColorConfig.h"
+#include "puke/graph/Graph.h"
+#include "puke/engine/Engine.h"
+#include "puke/nodes/Registry.h"
+#include "puke/color/ColorConfig.h"
 
 #if defined(_WIN32)
 #define EXIT_CODE(status) (status)
@@ -37,7 +37,7 @@ struct Result {
 
 static Result run(const std::string& args) {
     const fs::path log = g_dir / "log.txt";
-    const std::string cmd = "cd \"" + g_dir.string() + "\" && \"" COMP_RENDER_PATH "\" " + args +
+    const std::string cmd = "cd \"" + g_dir.string() + "\" && \"" PUKE_RENDER_PATH "\" " + args +
                             " > \"" + log.string() + "\" 2>&1";
     const int status = std::system(cmd.c_str());
     std::ifstream in(log);
@@ -127,9 +127,9 @@ static void testRenderSequence() {
     // 8-bit files are written as sRGB. PNG stores colour unpremultiplied, so
     // out-of-gamut values clip before alpha is applied again on reading:
     // expect clamp(sRGB colour / alpha) * alpha, within two quantisation steps.
-    comp::Image expected(comp::Box{0, 0, 1, 1}, {"R", "G", "B", "A"});
+    puke::Image expected(puke::Box{0, 0, 1, 1}, {"R", "G", "B", "A"});
     for (int c = 0; c < 4; ++c) expected.pixel(0, 0)[c] = 0.25f * c;  // still.exr
-    comp::ColorConfig::builtin()->convert(expected, "scene_linear", "sRGB - Texture");
+    puke::ColorConfig::builtin()->convert(expected, "scene_linear", "sRGB - Texture");
     for (int c = 0; c < 3; ++c) {
         const float stored = std::clamp(expected.pixel(0, 0)[c] / 0.75f, 0.0f, 1.0f) * 0.75f;
         CHECK(std::fabs(pixel(g_dir / "held.0002.png", 0, 0, c) - stored) < 2.0f / 255);
@@ -156,8 +156,8 @@ static void writeText(const std::string& name, const std::string& text) {
 
 static void testProjects() {
     // Read -> Grade (x2) -> two Writes.
-    writeText("shot.comp", R"({
-  "format": "comp",
+    writeText("shot.puke", R"({
+  "format": "puke",
   "version": 1,
   "nodes": [
     {"name": "Plate", "type": "Read", "params": {"file": "plate.####.exr", "first": 1001, "last": 1003}},
@@ -166,7 +166,7 @@ static void testProjects() {
     {"name": "Proxy", "type": "Write", "inputs": ["Plate"], "params": {"file": "proj/proxy.####.exr"}}
   ]
 })");
-    auto r = run("shot.comp --frames 1001-1002 --threads 2");
+    auto r = run("shot.puke --frames 1001-1002 --threads 2");
     CHECK(r.exitCode == 0);
     for (int f = 1001; f <= 1002; ++f) {
         const std::string n = std::to_string(f);
@@ -177,56 +177,56 @@ static void testProjects() {
     CHECK(!fs::exists(g_dir / "proj/main.1003.exr"));
 
     // --write picks which Write nodes run.
-    r = run("shot.comp --frames 1003 --write Proxy");
+    r = run("shot.puke --frames 1003 --write Proxy");
     CHECK(r.exitCode == 0);
     CHECK(fs::exists(g_dir / "proj/proxy.1003.exr") && !fs::exists(g_dir / "proj/main.1003.exr"));
 
     // Without --frames: the project's own range.
-    writeText("ranged.comp", R"({"format": "comp", "version": 1, "settings": {"first_frame": 1002, "last_frame": 1003},
+    writeText("ranged.puke", R"({"format": "puke", "version": 1, "settings": {"first_frame": 1002, "last_frame": 1003},
   "nodes": [
     {"name": "Plate", "type": "Read", "params": {"file": "plate.####.exr", "first": 1001, "last": 1003}},
     {"name": "W", "type": "Write", "inputs": ["Plate"], "params": {"file": "ranged/out.####.exr"}}]})");
-    r = run("ranged.comp");
+    r = run("ranged.puke");
     CHECK(r.exitCode == 0);
     CHECK(!fs::exists(g_dir / "ranged/out.1001.exr") && fs::exists(g_dir / "ranged/out.1002.exr") &&
           fs::exists(g_dir / "ranged/out.1003.exr"));
 
     // Generators make the project's format.
-    writeText("gen.comp", R"({"format": "comp", "version": 1, "settings": {"format": {"width": 320, "height": 180}},
+    writeText("gen.puke", R"({"format": "puke", "version": 1, "settings": {"format": {"width": 320, "height": 180}},
   "nodes": [
     {"name": "C", "type": "Constant", "params": {"color": [0.5, 0.5, 0.5, 1]}},
     {"name": "W", "type": "Write", "inputs": ["C"], "params": {"file": "gen/c.exr"}}]})");
-    r = run("gen.comp");
+    r = run("gen.puke");
     CHECK(r.exitCode == 0);
     {
-        comp::Graph check;
-        comp::Node& rd = check.add(comp::createNode("Read", "R"));
+        puke::Graph check;
+        puke::Node& rd = check.add(puke::createNode("Read", "R"));
         rd.setParam("file", (g_dir / "gen/c.exr").string());
-        CHECK((comp::Engine().info(rd, {}).displayWindow == comp::Box{0, 0, 320, 180}));
+        CHECK((puke::Engine().info(rd, {}).displayWindow == puke::Box{0, 0, 320, 180}));
     }
 
-    r = run("shot.comp --write Nope");
-    CHECK(r.exitCode == 2 && r.output.find("shot.comp: no node named 'Nope'") != std::string::npos);
-    r = run("shot.comp --write Grade1");
+    r = run("shot.puke --write Nope");
+    CHECK(r.exitCode == 2 && r.output.find("shot.puke: no node named 'Nope'") != std::string::npos);
+    r = run("shot.puke --write Grade1");
     CHECK(r.exitCode == 2 && r.output.find("Grade1 is a Grade node, not a Write") != std::string::npos);
-    r = run("shot.comp --datatype float");
+    r = run("shot.puke --datatype float");
     CHECK(r.exitCode == 2 && r.output.find("set them on the Write nodes") != std::string::npos);
 
-    writeText("nowrite.comp", R"({"format": "comp", "version": 1, "nodes": [{"name": "R", "type": "Read"}]})");
-    r = run("nowrite.comp");
+    writeText("nowrite.puke", R"({"format": "puke", "version": 1, "nodes": [{"name": "R", "type": "Read"}]})");
+    r = run("nowrite.puke");
     CHECK(r.exitCode == 2 && r.output.find("the project has no Write nodes") != std::string::npos);
 
-    writeText("still.comp", R"({"format": "comp", "version": 1, "nodes": [
+    writeText("still.puke", R"({"format": "puke", "version": 1, "nodes": [
         {"name": "R", "type": "Read", "params": {"file": "still.exr"}},
         {"name": "W", "type": "Write", "inputs": ["R"], "params": {"file": "still_proj.exr"}}]})");
-    r = run("still.comp --frames 1-2");
+    r = run("still.puke --frames 1-2");
     CHECK(r.exitCode == 2 && r.output.find("W: output needs a frame token") != std::string::npos);
 
-    writeText("broken.comp", R"({"format": "comp", "version": 1, "nodes": [{"name": "B", "type": "Defocus"}]})");
-    r = run("broken.comp");
-    CHECK(r.exitCode == 2 && r.output.find("broken.comp: node 1 (B): unknown node type 'Defocus'") != std::string::npos);
-    r = run("missing.comp");
-    CHECK(r.exitCode == 2 && r.output.find("cannot open project 'missing.comp'") != std::string::npos);
+    writeText("broken.puke", R"({"format": "puke", "version": 1, "nodes": [{"name": "B", "type": "Defocus"}]})");
+    r = run("broken.puke");
+    CHECK(r.exitCode == 2 && r.output.find("broken.puke: node 1 (B): unknown node type 'Defocus'") != std::string::npos);
+    r = run("missing.puke");
+    CHECK(r.exitCode == 2 && r.output.find("cannot open project 'missing.puke'") != std::string::npos);
 }
 
 int main() {

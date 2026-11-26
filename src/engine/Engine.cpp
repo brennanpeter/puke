@@ -1,4 +1,4 @@
-#include "comp/engine/Engine.h"
+#include "puke/engine/Engine.h"
 
 #include <cstring>
 #include <memory>
@@ -7,11 +7,11 @@
 #include <unordered_map>
 #include <vector>
 
-#include "comp/engine/Snapshot.h"
-#include "comp/engine/ThreadPool.h"
-#include "comp/engine/TileCache.h"
+#include "puke/engine/Snapshot.h"
+#include "puke/engine/ThreadPool.h"
+#include "puke/engine/TileCache.h"
 
-namespace comp {
+namespace puke {
 namespace {
 
 using Entry = Snapshot::Entry;
@@ -285,4 +285,4 @@ Image Engine::render(const Snapshot& animated, const RenderContext& ctx, const B
     return result;
 }
 
-}  // namespace comp
+}  // namespace puke

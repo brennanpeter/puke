@@ -11,9 +11,9 @@
 #include <utility>
 #include <vector>
 
-#include "comp/graph/Graph.h"
+#include "puke/graph/Graph.h"
 
-namespace compgui {
+namespace pukegui {
 
 class DocCommand;
 
@@ -23,7 +23,7 @@ class DocCommand;
 //
 // Every edit is an undoable command on undoStack(). Edits are checked
 // before they're recorded (a connection that would make a cycle, a name
-// that's taken...), so a failed edit throws comp::Error and leaves nothing
+// that's taken...), so a failed edit throws puke::Error and leaves nothing
 // on the stack. Unsaved changes are tracked by the stack too: undoing back
 // to the saved state makes the document clean again.
 //
@@ -35,7 +35,7 @@ public:
     explicit Document(QObject* parent = nullptr);
     ~Document() override;
 
-    comp::Graph& graph() { return *graph_; }
+    puke::Graph& graph() { return *graph_; }
     const QString& path() const { return path_; }
     bool dirty() const { return !undo_.isClean(); }
     QUndoStack& undoStack() { return undo_; }
@@ -44,68 +44,68 @@ public:
     // make the document dirty).
     int frame() const { return frame_; }
     void setFrame(int frame);
-    const comp::ProjectSettings& settings() const { return graph_->settings(); }
+    const puke::ProjectSettings& settings() const { return graph_->settings(); }
 
-    comp::Node* selected() const { return selected_; }
-    comp::Node* viewed() const { return viewed_; }
-    void setSelected(comp::Node* node);
-    void setViewed(comp::Node* node);
+    puke::Node* selected() const { return selected_; }
+    puke::Node* viewed() const { return viewed_; }
+    void setSelected(puke::Node* node);
+    void setViewed(puke::Node* node);
 
     // --- edits (each one undoable)
 
     // Creates a node of `type` (a registry name, e.g. "Grade" or
     // "ofx:<id>"), named Type1, Type2... If `upstream` is given, its output
-    // feeds the new node's first input. Throws comp::Error.
-    comp::Node& createNode(const std::string& type, QPointF position, comp::Node* upstream = nullptr);
+    // feeds the new node's first input. Throws puke::Error.
+    puke::Node& createNode(const std::string& type, QPointF position, puke::Node* upstream = nullptr);
     // Feeds `source` into `target`'s input (replacing what was there).
-    // Throws comp::Error (e.g. for a cycle).
-    void connectNodes(comp::Node& source, comp::Node& target, int input);
-    void disconnect(comp::Node& target, int input);
-    void removeNodes(const std::vector<comp::Node*>& nodes);
-    void removeNode(comp::Node& node) { removeNodes({&node}); }
+    // Throws puke::Error (e.g. for a cycle).
+    void connectNodes(puke::Node& source, puke::Node& target, int input);
+    void disconnect(puke::Node& target, int input);
+    void removeNodes(const std::vector<puke::Node*>& nodes);
+    void removeNode(puke::Node& node) { removeNodes({&node}); }
     // Several nodes moved at once are one undo step.
-    void moveNodes(const std::vector<std::pair<comp::Node*, QPointF>>& moves);
-    void moveNode(comp::Node& node, QPointF position) { moveNodes({{&node, position}}); }
+    void moveNodes(const std::vector<std::pair<puke::Node*, QPointF>>& moves);
+    void moveNode(puke::Node& node, QPointF position) { moveNodes({{&node, position}}); }
     // Changes to the same parameter in a row merge into one undo step (a
     // slider drag is one step, not hundreds).
     // Sets a parameter. If it's animated, sets a key at the current frame
     // instead (as in Nuke: editing an animated value keys it).
-    void setParam(comp::Node& node, const std::string& key, comp::ParamValue value);
+    void setParam(puke::Node& node, const std::string& key, puke::ParamValue value);
     // Back to the default: no value, no animation.
-    void clearParam(comp::Node& node, const std::string& key);
+    void clearParam(puke::Node& node, const std::string& key);
 
     // Animation, at the current frame. setKey() animates a parameter that
     // isn't yet. Removing the last key leaves its value, unanimated, as
     // does removeAnimation() with the value at the current frame.
-    void setKey(comp::Node& node, const std::string& key, comp::ParamValue value);
-    void removeKey(comp::Node& node, const std::string& key);
-    void removeAnimation(comp::Node& node, const std::string& key);
+    void setKey(puke::Node& node, const std::string& key, puke::ParamValue value);
+    void removeKey(puke::Node& node, const std::string& key);
+    void removeAnimation(puke::Node& node, const std::string& key);
     // The interpolation leaving the key at the current frame.
-    void setInterp(comp::Node& node, const std::string& key, comp::Curve::Interp interp);
+    void setInterp(puke::Node& node, const std::string& key, puke::Curve::Interp interp);
     // Replaces a parameter's whole curve (the curve editor's edits). An
     // empty curve leaves the value at the current frame, unanimated.
-    void editCurve(comp::Node& node, const std::string& key, comp::Curve curve, const QString& text);
+    void editCurve(puke::Node& node, const std::string& key, puke::Curve curve, const QString& text);
 
     // A parameter's whole state: a plain value, a curve, or neither.
     struct ParamState {
-        std::optional<comp::ParamValue> value;
-        std::optional<comp::Curve> curve;
+        std::optional<puke::ParamValue> value;
+        std::optional<puke::Curve> curve;
         bool operator==(const ParamState&) const = default;
     };
-    static ParamState paramState(const comp::Node& node, const std::string& key);
-    // Throws comp::Error if the name is empty or taken.
-    void renameNode(comp::Node& node, const std::string& name);
-    // Frame range and fps. Throws comp::Error if they're invalid.
-    void setSettings(const comp::ProjectSettings& settings);
+    static ParamState paramState(const puke::Node& node, const std::string& key);
+    // Throws puke::Error if the name is empty or taken.
+    void renameNode(puke::Node& node, const std::string& name);
+    // Frame range and fps. Throws puke::Error if they're invalid.
+    void setSettings(const puke::ProjectSettings& settings);
 
-    // Copy and paste: nodes as project text (the .comp format), so they can
+    // Copy and paste: nodes as project text (the .puke format), so they can
     // go through the clipboard, between windows or into a text editor.
-    std::string copyNodes(const std::vector<comp::Node*>& nodes) const;
+    std::string copyNodes(const std::vector<puke::Node*>& nodes) const;
     // Adds the nodes in `text` as one undo step and returns them. Names
     // already in use get the next free number (Grade1 -> Grade2), and
     // connections between pasted nodes are kept. Positions are shifted by
-    // `offset`. Throws comp::Error if the text isn't a project.
-    std::vector<comp::Node*> pasteNodes(const std::string& text, QPointF offset);
+    // `offset`. Throws puke::Error if the text isn't a project.
+    std::vector<puke::Node*> pasteNodes(const std::string& text, QPointF offset);
 
     // Groups the edits made until endEdit() into one undo step.
     void beginEdit(const QString& text) { undo_.beginMacro(text); }
@@ -119,8 +119,8 @@ public:
 
 signals:
     void structureChanged();               // nodes, names or connections changed
-    void paramChanged(comp::Node* node);   // a parameter of `node` changed
-    void nodeMoved(comp::Node* node);
+    void paramChanged(puke::Node* node);   // a parameter of `node` changed
+    void nodeMoved(puke::Node* node);
     void selectionChanged();
     void viewedChanged();
     void dirtyChanged(bool dirty);
@@ -134,24 +134,24 @@ private:
 
     // The raw operations commands are built from. They change the graph and
     // emit signals; they never touch the undo stack.
-    void rawInsert(const std::shared_ptr<comp::Node>& node, std::size_t index);
-    void rawTake(comp::Node& node);
-    void rawConnect(comp::Node* source, comp::Node& target, int input);  // null source: disconnect
-    void rawSetParam(comp::Node& node, const std::string& key, const ParamState& state);
-    void pushParam(comp::Node& node, const std::string& key, ParamState after, const QString& text);
-    void rawMove(comp::Node& node, const std::optional<comp::Vec2>& position);
-    void rawRename(comp::Node& node, const std::string& name);
-    void rawSetSettings(const comp::ProjectSettings& settings);
+    void rawInsert(const std::shared_ptr<puke::Node>& node, std::size_t index);
+    void rawTake(puke::Node& node);
+    void rawConnect(puke::Node* source, puke::Node& target, int input);  // null source: disconnect
+    void rawSetParam(puke::Node& node, const std::string& key, const ParamState& state);
+    void pushParam(puke::Node& node, const std::string& key, ParamState after, const QString& text);
+    void rawMove(puke::Node& node, const std::optional<puke::Vec2>& position);
+    void rawRename(puke::Node& node, const std::string& name);
+    void rawSetSettings(const puke::ProjectSettings& settings);
 
     std::string freeName(const std::string& type) const;
-    void resetTo(std::unique_ptr<comp::Graph> graph, const QString& path, comp::Node* viewed);
+    void resetTo(std::unique_ptr<puke::Graph> graph, const QString& path, puke::Node* viewed);
 
-    std::unique_ptr<comp::Graph> graph_;
+    std::unique_ptr<puke::Graph> graph_;
     QString path_;
     QUndoStack undo_;
-    comp::Node* selected_ = nullptr;
-    comp::Node* viewed_ = nullptr;
+    puke::Node* selected_ = nullptr;
+    puke::Node* viewed_ = nullptr;
     int frame_ = 1;
 };
 
-}  // namespace compgui
+}  // namespace pukegui

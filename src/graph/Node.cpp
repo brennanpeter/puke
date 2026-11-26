@@ -1,9 +1,9 @@
-#include "comp/graph/Node.h"
+#include "puke/graph/Node.h"
 
 #include <atomic>
 #include <string>
 
-namespace comp {
+namespace puke {
 
 namespace {
 std::atomic<std::uint64_t> nextNodeId{1};
@@ -144,4 +144,4 @@ Node& Node::requireInput(int index) const {
     return *n;
 }
 
-}  // namespace comp
+}  // namespace puke

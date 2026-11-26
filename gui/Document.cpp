@@ -6,11 +6,11 @@
 #include <algorithm>
 #include <cctype>
 
-#include "comp/engine/Engine.h"
-#include "comp/nodes/Registry.h"
-#include "comp/project/Project.h"
+#include "puke/engine/Engine.h"
+#include "puke/nodes/Registry.h"
+#include "puke/project/Project.h"
 
-namespace compgui {
+namespace pukegui {
 
 // ================================================================ commands
 
@@ -23,25 +23,25 @@ public:
 
 protected:
     Document& doc_;
-    void insert(const std::shared_ptr<comp::Node>& n, std::size_t i) { doc_.rawInsert(n, i); }
-    void take(comp::Node& n) { doc_.rawTake(n); }
-    void connect(comp::Node* s, comp::Node& t, int i) { doc_.rawConnect(s, t, i); }
-    void setParam(comp::Node& n, const std::string& k, const Document::ParamState& s) { doc_.rawSetParam(n, k, s); }
-    void move(comp::Node& n, const std::optional<comp::Vec2>& p) { doc_.rawMove(n, p); }
-    void rename(comp::Node& n, const std::string& name) { doc_.rawRename(n, name); }
-    void setSettings(const comp::ProjectSettings& s) { doc_.rawSetSettings(s); }
-    void select(comp::Node* n) { doc_.setSelected(n); }
-    void view(comp::Node* n) { doc_.setViewed(n); }
-    comp::Graph& graph() { return *doc_.graph_; }
+    void insert(const std::shared_ptr<puke::Node>& n, std::size_t i) { doc_.rawInsert(n, i); }
+    void take(puke::Node& n) { doc_.rawTake(n); }
+    void connect(puke::Node* s, puke::Node& t, int i) { doc_.rawConnect(s, t, i); }
+    void setParam(puke::Node& n, const std::string& k, const Document::ParamState& s) { doc_.rawSetParam(n, k, s); }
+    void move(puke::Node& n, const std::optional<puke::Vec2>& p) { doc_.rawMove(n, p); }
+    void rename(puke::Node& n, const std::string& name) { doc_.rawRename(n, name); }
+    void setSettings(const puke::ProjectSettings& s) { doc_.rawSetSettings(s); }
+    void select(puke::Node* n) { doc_.setSelected(n); }
+    void view(puke::Node* n) { doc_.setViewed(n); }
+    puke::Graph& graph() { return *doc_.graph_; }
 
-    static std::shared_ptr<comp::Node> shared(comp::Node* n) {
+    static std::shared_ptr<puke::Node> shared(puke::Node* n) {
         return n ? n->shared_from_this() : nullptr;
     }
 };
 
 namespace {
 
-using NodePtr = std::shared_ptr<comp::Node>;
+using NodePtr = std::shared_ptr<puke::Node>;
 
 struct Connection {
     NodePtr source, target;
@@ -72,15 +72,15 @@ private:
 // their place in the node order, their inputs, and who used them.
 class RemoveNodes : public DocCommand {
 public:
-    RemoveNodes(Document& doc, const std::vector<comp::Node*>& nodes)
+    RemoveNodes(Document& doc, const std::vector<puke::Node*>& nodes)
         : DocCommand(doc, nodes.size() == 1 ? "Delete " + QString::fromStdString(nodes[0]->name())
                                             : QString("Delete %1 nodes").arg(nodes.size())) {
-        for (comp::Node* n : nodes) {
+        for (puke::Node* n : nodes) {
             Record r;
             r.node = shared(n);
             r.index = graph().indexOf(*n);
             for (int i = 0; i < n->maxInputs(); ++i) r.inputs.push_back(shared(n->input(i)));
-            for (comp::Node* c : graph().consumers(*n))
+            for (puke::Node* c : graph().consumers(*n))
                 for (int i = 0; i < c->maxInputs(); ++i)
                     if (c->input(i) == n) r.consumers.push_back({shared(c), i});
             r.wasViewed = doc.viewed() == n;
@@ -119,7 +119,7 @@ private:
 // Sets what feeds one input (or nothing).
 class Connect : public DocCommand {
 public:
-    Connect(Document& doc, NodePtr source, comp::Node& target, int input)
+    Connect(Document& doc, NodePtr source, puke::Node& target, int input)
         : DocCommand(doc, source ? "Connect " + QString::fromStdString(source->name()) + " to " +
                                        QString::fromStdString(target.name())
                                  : "Disconnect " + QString::fromStdString(target.name())),
@@ -134,7 +134,7 @@ private:
 
 class SetParam : public DocCommand {
 public:
-    SetParam(Document& doc, comp::Node& node, std::string key, Document::ParamState after, const QString& text)
+    SetParam(Document& doc, puke::Node& node, std::string key, Document::ParamState after, const QString& text)
         : DocCommand(doc, text), node_(shared(&node)), key_(std::move(key)),
           before_(Document::paramState(node, key_)), after_(std::move(after)) {}
     int id() const override { return 1; }
@@ -156,10 +156,10 @@ private:
 
 class MoveNodes : public DocCommand {
 public:
-    MoveNodes(Document& doc, const std::vector<std::pair<comp::Node*, QPointF>>& moves)
+    MoveNodes(Document& doc, const std::vector<std::pair<puke::Node*, QPointF>>& moves)
         : DocCommand(doc, moves.size() == 1 ? "Move " + QString::fromStdString(moves[0].first->name())
                                             : QString("Move %1 nodes").arg(moves.size())) {
-        for (const auto& [n, p] : moves) moves_.push_back({shared(n), n->position(), comp::Vec2{p.x(), p.y()}});
+        for (const auto& [n, p] : moves) moves_.push_back({shared(n), n->position(), puke::Vec2{p.x(), p.y()}});
     }
     void redo() override {
         for (const auto& m : moves_) move(*m.node, m.after);
@@ -171,15 +171,15 @@ public:
 private:
     struct Move {
         NodePtr node;
-        std::optional<comp::Vec2> before;
-        comp::Vec2 after;
+        std::optional<puke::Vec2> before;
+        puke::Vec2 after;
     };
     std::vector<Move> moves_;
 };
 
 class Rename : public DocCommand {
 public:
-    Rename(Document& doc, comp::Node& node, std::string name)
+    Rename(Document& doc, puke::Node& node, std::string name)
         : DocCommand(doc, "Rename " + QString::fromStdString(node.name())), node_(shared(&node)), before_(node.name()),
           after_(std::move(name)) {}
     void redo() override { rename(*node_, after_); }
@@ -192,20 +192,20 @@ private:
 
 class SetSettings : public DocCommand {
 public:
-    SetSettings(Document& doc, const comp::ProjectSettings& after)
+    SetSettings(Document& doc, const puke::ProjectSettings& after)
         : DocCommand(doc, "Project settings"), before_(doc.settings()), after_(after) {}
     void redo() override { setSettings(after_); }
     void undo() override { setSettings(before_); }
 
 private:
-    comp::ProjectSettings before_, after_;
+    puke::ProjectSettings before_, after_;
 };
 
 }  // namespace
 
 // ================================================================ document
 
-Document::Document(QObject* parent) : QObject(parent), graph_(std::make_unique<comp::Graph>()) {
+Document::Document(QObject* parent) : QObject(parent), graph_(std::make_unique<puke::Graph>()) {
     connect(&undo_, &QUndoStack::cleanChanged, this, [this](bool clean) { emit dirtyChanged(!clean); });
 }
 
@@ -216,7 +216,7 @@ Document::~Document() {
     undo_.clear();
 }
 
-void Document::setSelected(comp::Node* node) {
+void Document::setSelected(puke::Node* node) {
     if (node == selected_) return;
     selected_ = node;
     emit selectionChanged();
@@ -228,7 +228,7 @@ void Document::setFrame(int frame) {
     emit frameChanged(frame);
 }
 
-void Document::setViewed(comp::Node* node) {
+void Document::setViewed(puke::Node* node) {
     if (node == viewed_) return;
     viewed_ = node;
     emit viewedChanged();
@@ -263,13 +263,13 @@ std::string Document::freeName(const std::string& type) const {
 
 // --- raw operations
 
-void Document::rawInsert(const std::shared_ptr<comp::Node>& node, std::size_t index) {
+void Document::rawInsert(const std::shared_ptr<puke::Node>& node, std::size_t index) {
     graph_->insert(node, index);
     emit structureChanged();
     emit renderNeeded();
 }
 
-void Document::rawTake(comp::Node& node) {
+void Document::rawTake(puke::Node& node) {
     if (selected_ == &node) setSelected(nullptr);
     if (viewed_ == &node) {
         viewed_ = nullptr;
@@ -280,21 +280,21 @@ void Document::rawTake(comp::Node& node) {
     emit renderNeeded();
 }
 
-void Document::rawConnect(comp::Node* source, comp::Node& target, int input) {
+void Document::rawConnect(puke::Node* source, puke::Node& target, int input) {
     if (source) graph_->connect(*source, target, input);
     else graph_->disconnect(target, input);
     emit structureChanged();
     emit renderNeeded();
 }
 
-Document::ParamState Document::paramState(const comp::Node& node, const std::string& key) {
+Document::ParamState Document::paramState(const puke::Node& node, const std::string& key) {
     ParamState s;
-    if (const comp::Curve* c = node.curve(key)) s.curve = *c;
+    if (const puke::Curve* c = node.curve(key)) s.curve = *c;
     else if (auto it = node.params().find(key); it != node.params().end()) s.value = it->second;
     return s;
 }
 
-void Document::rawSetParam(comp::Node& node, const std::string& key, const ParamState& state) {
+void Document::rawSetParam(puke::Node& node, const std::string& key, const ParamState& state) {
     if (state.curve && !state.curve->empty()) node.setCurve(key, *state.curve);
     else if (state.value) node.setParam(key, *state.value);
     else node.clearParam(key);
@@ -302,28 +302,28 @@ void Document::rawSetParam(comp::Node& node, const std::string& key, const Param
     emit renderNeeded();
 }
 
-void Document::rawMove(comp::Node& node, const std::optional<comp::Vec2>& position) {
+void Document::rawMove(puke::Node& node, const std::optional<puke::Vec2>& position) {
     node.setPosition(position);
     emit nodeMoved(&node);
 }
 
-void Document::rawRename(comp::Node& node, const std::string& name) {
+void Document::rawRename(puke::Node& node, const std::string& name) {
     graph_->rename(node, name);
     emit structureChanged();
     emit paramChanged(&node);  // panels showing its name
 }
 
-void Document::rawSetSettings(const comp::ProjectSettings& settings) {
+void Document::rawSetSettings(const puke::ProjectSettings& settings) {
     graph_->setSettings(settings);
     emit settingsChanged();
 }
 
 // --- edits
 
-comp::Node& Document::createNode(const std::string& type, QPointF position, comp::Node* upstream) {
+puke::Node& Document::createNode(const std::string& type, QPointF position, puke::Node* upstream) {
     // Made and checked before anything is recorded: a failure leaves no step.
-    std::shared_ptr<comp::Node> node(comp::createNode(type, freeName(type)));
-    node->setPosition(comp::Vec2{position.x(), position.y()});
+    std::shared_ptr<puke::Node> node(puke::createNode(type, freeName(type)));
+    node->setPosition(puke::Vec2{position.x(), position.y()});
     std::vector<Connection> conns;
     if (upstream && node->maxInputs() > 0) {
         conns.push_back({upstream->shared_from_this(), node, 0});
@@ -332,54 +332,54 @@ comp::Node& Document::createNode(const std::string& type, QPointF position, comp
         // the origin), Crop's box is all of it.
         if (type == "Transform" || type == "Crop") {
             try {
-                comp::Engine engine(comp::EngineOptions{.threads = 1});
-                const comp::Box f = engine.info(*upstream, {double(frame_), settings().format}).displayWindow;
+                puke::Engine engine(puke::EngineOptions{.threads = 1});
+                const puke::Box f = engine.info(*upstream, {double(frame_), settings().format}).displayWindow;
                 if (type == "Transform") {
-                    node->setParam("center", comp::Vec2{(f.x0 + f.x1) / 2.0, (f.y0 + f.y1) / 2.0});
+                    node->setParam("center", puke::Vec2{(f.x0 + f.x1) / 2.0, (f.y0 + f.y1) / 2.0});
                 } else {
-                    node->setParam("box_min", comp::Vec2{double(f.x0), double(f.y0)});
-                    node->setParam("box_max", comp::Vec2{double(f.x1), double(f.y1)});
+                    node->setParam("box_min", puke::Vec2{double(f.x0), double(f.y0)});
+                    node->setParam("box_max", puke::Vec2{double(f.x1), double(f.y1)});
                 }
-            } catch (const comp::Error&) {  // input not ready yet: keep the default
+            } catch (const puke::Error&) {  // input not ready yet: keep the default
             }
         }
     }
-    comp::Node& ref = *node;
+    puke::Node& ref = *node;
     undo_.push(new AddNodes(*this, "Create " + QString::fromStdString(ref.name()), {node}, std::move(conns)));
     return ref;
 }
 
-void Document::connectNodes(comp::Node& source, comp::Node& target, int input) {
+void Document::connectNodes(puke::Node& source, puke::Node& target, int input) {
     if (target.input(input) == &source) return;
     // Try it first, so a cycle throws before anything is recorded.
-    comp::Node* before = target.input(input);
+    puke::Node* before = target.input(input);
     graph_->connect(source, target, input);
     if (before) graph_->connect(*before, target, input);
     else graph_->disconnect(target, input);
     undo_.push(new Connect(*this, source.shared_from_this(), target, input));
 }
 
-void Document::disconnect(comp::Node& target, int input) {
+void Document::disconnect(puke::Node& target, int input) {
     if (!target.input(input)) return;
     undo_.push(new Connect(*this, nullptr, target, input));
 }
 
-void Document::removeNodes(const std::vector<comp::Node*>& nodes) {
+void Document::removeNodes(const std::vector<puke::Node*>& nodes) {
     if (nodes.empty()) return;
     undo_.push(new RemoveNodes(*this, nodes));
 }
 
-void Document::moveNodes(const std::vector<std::pair<comp::Node*, QPointF>>& moves) {
+void Document::moveNodes(const std::vector<std::pair<puke::Node*, QPointF>>& moves) {
     if (moves.empty()) return;
     undo_.push(new MoveNodes(*this, moves));
 }
 
-void Document::pushParam(comp::Node& node, const std::string& key, ParamState after, const QString& text) {
+void Document::pushParam(puke::Node& node, const std::string& key, ParamState after, const QString& text) {
     if (after == paramState(node, key)) return;
     undo_.push(new SetParam(*this, node, key, std::move(after), text));
 }
 
-void Document::setParam(comp::Node& node, const std::string& key, comp::ParamValue value) {
+void Document::setParam(puke::Node& node, const std::string& key, puke::ParamValue value) {
     if (node.animated(key)) {
         setKey(node, key, std::move(value));
         return;
@@ -387,12 +387,12 @@ void Document::setParam(comp::Node& node, const std::string& key, comp::ParamVal
     pushParam(node, key, {std::move(value), std::nullopt}, "Set " + QString::fromStdString(key));
 }
 
-void Document::clearParam(comp::Node& node, const std::string& key) {
+void Document::clearParam(puke::Node& node, const std::string& key) {
     pushParam(node, key, {}, "Reset " + QString::fromStdString(key));
 }
 
-void Document::setKey(comp::Node& node, const std::string& key, comp::ParamValue value) {
-    comp::Curve c = node.curve(key) ? *node.curve(key) : comp::Curve{};
+void Document::setKey(puke::Node& node, const std::string& key, puke::ParamValue value) {
+    puke::Curve c = node.curve(key) ? *node.curve(key) : puke::Curve{};
     c.setKey(frame_, std::move(value));
     // The frame is in the name, so keys at different frames are different
     // steps (a drag at one frame still merges into one).
@@ -400,22 +400,22 @@ void Document::setKey(comp::Node& node, const std::string& key, comp::ParamValue
               QString("Key %1 at frame %2").arg(QString::fromStdString(key)).arg(frame_));
 }
 
-void Document::removeKey(comp::Node& node, const std::string& key) {
-    const comp::Curve* old = node.curve(key);
+void Document::removeKey(puke::Node& node, const std::string& key) {
+    const puke::Curve* old = node.curve(key);
     if (!old || !old->keyAt(frame_)) return;
-    comp::Curve c = *old;
-    const comp::ParamValue last = c.keyAt(frame_)->value;
+    puke::Curve c = *old;
+    const puke::ParamValue last = c.keyAt(frame_)->value;
     c.removeKey(frame_);
     ParamState after = c.empty() ? ParamState{last, std::nullopt} : ParamState{std::nullopt, std::move(c)};
     pushParam(node, key, std::move(after), "Delete key on " + QString::fromStdString(key));
 }
 
-void Document::removeAnimation(comp::Node& node, const std::string& key) {
+void Document::removeAnimation(puke::Node& node, const std::string& key) {
     if (!node.animated(key)) return;
     pushParam(node, key, {node.valueAt(key, frame_), std::nullopt}, "Remove animation of " + QString::fromStdString(key));
 }
 
-void Document::editCurve(comp::Node& node, const std::string& key, comp::Curve curve, const QString& text) {
+void Document::editCurve(puke::Node& node, const std::string& key, puke::Curve curve, const QString& text) {
     if (curve.empty()) {
         pushParam(node, key, {node.valueAt(key, frame_), std::nullopt}, text);
         return;
@@ -423,27 +423,27 @@ void Document::editCurve(comp::Node& node, const std::string& key, comp::Curve c
     pushParam(node, key, {std::nullopt, std::move(curve)}, text);
 }
 
-void Document::setInterp(comp::Node& node, const std::string& key, comp::Curve::Interp interp) {
-    const comp::Curve* old = node.curve(key);
+void Document::setInterp(puke::Node& node, const std::string& key, puke::Curve::Interp interp) {
+    const puke::Curve* old = node.curve(key);
     if (!old || !old->keyAt(frame_)) return;
-    comp::Curve c = *old;
+    puke::Curve c = *old;
     c.setInterp(frame_, interp);
     pushParam(node, key, {std::nullopt, std::move(c)}, "Interpolation of " + QString::fromStdString(key));
 }
 
-void Document::renameNode(comp::Node& node, const std::string& name) {
+void Document::renameNode(puke::Node& node, const std::string& name) {
     if (name == node.name()) return;
-    if (name.empty()) throw comp::Error("node name cannot be empty");
-    if (graph_->find(name)) throw comp::Error("a node named '" + name + "' already exists");
+    if (name.empty()) throw puke::Error("node name cannot be empty");
+    if (graph_->find(name)) throw puke::Error("a node named '" + name + "' already exists");
     undo_.push(new Rename(*this, node, name));
 }
 
-std::string Document::copyNodes(const std::vector<comp::Node*>& nodes) const {
-    return comp::nodesToJson(*graph_, std::vector<const comp::Node*>(nodes.begin(), nodes.end()));
+std::string Document::copyNodes(const std::vector<puke::Node*>& nodes) const {
+    return puke::nodesToJson(*graph_, std::vector<const puke::Node*>(nodes.begin(), nodes.end()));
 }
 
-std::vector<comp::Node*> Document::pasteNodes(const std::string& text, QPointF offset) {
-    comp::Graph pasted = comp::projectFromJson(text, "pasted nodes");
+std::vector<puke::Node*> Document::pasteNodes(const std::string& text, QPointF offset) {
+    puke::Graph pasted = puke::projectFromJson(text, "pasted nodes");
     if (pasted.nodes().empty()) return {};
 
     // Note the connections, then take the nodes out (which disconnects them).
@@ -451,7 +451,7 @@ std::vector<comp::Node*> Document::pasteNodes(const std::string& text, QPointF o
     std::vector<Connection> conns;
     for (const auto& n : nodes)
         for (int i = 0; i < n->maxInputs(); ++i)
-            if (comp::Node* in = n->input(i)) conns.push_back({in->shared_from_this(), n, i});
+            if (puke::Node* in = n->input(i)) conns.push_back({in->shared_from_this(), n, i});
     for (const auto& n : nodes) pasted.take(*n);
 
     std::vector<std::string> names;  // the pasted nodes' new names so far
@@ -461,10 +461,10 @@ std::vector<comp::Node*> Document::pasteNodes(const std::string& text, QPointF o
     for (const auto& n : nodes) {
         if (taken(n->name())) n->setName(nextFreeName(n->name(), taken));
         names.push_back(n->name());
-        if (const auto& p = n->position()) n->setPosition(comp::Vec2{(*p)[0] + offset.x(), (*p)[1] + offset.y()});
+        if (const auto& p = n->position()) n->setPosition(puke::Vec2{(*p)[0] + offset.x(), (*p)[1] + offset.y()});
     }
 
-    std::vector<comp::Node*> out;
+    std::vector<puke::Node*> out;
     for (const auto& n : nodes) out.push_back(n.get());
     const QString text_ = nodes.size() == 1 ? "Paste " + QString::fromStdString(nodes[0]->name())
                                             : QString("Paste %1 nodes").arg(nodes.size());
@@ -472,16 +472,16 @@ std::vector<comp::Node*> Document::pasteNodes(const std::string& text, QPointF o
     return out;
 }
 
-void Document::setSettings(const comp::ProjectSettings& settings) {
+void Document::setSettings(const puke::ProjectSettings& settings) {
     if (settings == graph_->settings()) return;
-    comp::Graph check;
+    puke::Graph check;
     check.setSettings(settings);  // throws if invalid, before anything is recorded
     undo_.push(new SetSettings(*this, settings));
 }
 
 // --- files
 
-void Document::resetTo(std::unique_ptr<comp::Graph> graph, const QString& path, comp::Node* viewed) {
+void Document::resetTo(std::unique_ptr<puke::Graph> graph, const QString& path, puke::Node* viewed) {
     undo_.clear();
     selected_ = nullptr;
     viewed_ = viewed;
@@ -499,19 +499,19 @@ void Document::resetTo(std::unique_ptr<comp::Graph> graph, const QString& path, 
     emit renderNeeded();
 }
 
-void Document::newDocument() { resetTo(std::make_unique<comp::Graph>(), {}, nullptr); }
+void Document::newDocument() { resetTo(std::make_unique<puke::Graph>(), {}, nullptr); }
 
 bool Document::load(const QString& path, QString* error) {
-    std::unique_ptr<comp::Graph> graph;
+    std::unique_ptr<puke::Graph> graph;
     try {
-        graph = std::make_unique<comp::Graph>(comp::loadProject(path.toStdString()));
-    } catch (const comp::Error& e) {
+        graph = std::make_unique<puke::Graph>(puke::loadProject(path.toStdString()));
+    } catch (const puke::Error& e) {
         if (error) *error = QString::fromStdString(e.what());
         return false;
     }
     // View the last node that isn't a Write (usually the comp's output), or
     // the last node of all.
-    comp::Node* viewed = nullptr;
+    puke::Node* viewed = nullptr;
     for (auto it = graph->nodes().rbegin(); it != graph->nodes().rend() && !viewed; ++it)
         if (std::string((*it)->typeName()) != "Write") viewed = it->get();
     if (!viewed && !graph->nodes().empty()) viewed = graph->nodes().back().get();
@@ -521,8 +521,8 @@ bool Document::load(const QString& path, QString* error) {
 
 bool Document::save(const QString& path, QString* error) {
     try {
-        comp::saveProject(*graph_, path.toStdString());
-    } catch (const comp::Error& e) {
+        puke::saveProject(*graph_, path.toStdString());
+    } catch (const puke::Error& e) {
         if (error) *error = QString::fromStdString(e.what());
         return false;
     }
@@ -534,4 +534,4 @@ bool Document::save(const QString& path, QString* error) {
     return true;
 }
 
-}  // namespace compgui
+}  // namespace pukegui

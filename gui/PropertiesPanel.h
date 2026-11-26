@@ -5,11 +5,11 @@
 #include <functional>
 #include <vector>
 
-namespace comp {
+namespace puke {
 class Node;
 }
 
-namespace compgui {
+namespace pukegui {
 
 class Document;
 
@@ -26,8 +26,8 @@ private:
     void refresh();  // re-read values into the existing controls
 
     Document& doc_;
-    comp::Node* node_ = nullptr;
+    puke::Node* node_ = nullptr;
     std::vector<std::function<void()>> refreshers_;
 };
 
-}  // namespace compgui
+}  // namespace pukegui

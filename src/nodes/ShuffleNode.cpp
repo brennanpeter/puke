@@ -1,10 +1,10 @@
-#include "comp/nodes/ShuffleNode.h"
+#include "puke/nodes/ShuffleNode.h"
 
 #include <algorithm>
 
 #include "Specs.h"
 
-namespace comp {
+namespace puke {
 
 namespace {
 const char* const kOut[4] = {"R", "G", "B", "A"};
@@ -94,4 +94,4 @@ Image ShuffleNode::compute(const RenderContext&, const Box& region, std::span<co
     return out;
 }
 
-}  // namespace comp
+}  // namespace puke
