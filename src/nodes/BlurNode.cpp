@@ -15,11 +15,11 @@ std::vector<ParamSpec> BlurNode::paramSpecs() const {
     };
 }
 
-Vec2 BlurNode::size() const {
+Vec2 BlurNode::size(double scale) const {
     const Vec2 s = vec2Param("size", {0, 0});
     for (double v : s)
         if (!(v >= 0 && v <= 10000)) throw Error(name() + ": size must be from 0 to 10000");
-    return s;
+    return {s[0] * scale, s[1] * scale};
 }
 
 std::vector<float> BlurNode::kernel(double size) const {
@@ -50,22 +50,22 @@ namespace {
 Box grown(const Box& b, int rx, int ry) { return b.empty() ? b : Box{b.x0 - rx, b.y0 - ry, b.x1 + rx, b.y1 + ry}; }
 }  // namespace
 
-ImageInfo BlurNode::computeInfo(const RenderContext&, std::span<const ImageInfo* const> inputs) const {
+ImageInfo BlurNode::computeInfo(const RenderContext& ctx, std::span<const ImageInfo* const> inputs) const {
     ImageInfo info = *inputs[0];
-    const Vec2 s = size();
+    const Vec2 s = size(ctx.scale);
     const int rx = static_cast<int>(kernel(s[0]).size() / 2), ry = static_cast<int>(kernel(s[1]).size() / 2);
     info.dataWindow = grown(info.dataWindow, rx, ry);
     return info;
 }
 
-Box BlurNode::inputRegion(const RenderContext&, int, const Box& outputRegion) const {
-    const Vec2 s = size();
+Box BlurNode::inputRegion(const RenderContext& ctx, int, const Box& outputRegion) const {
+    const Vec2 s = size(ctx.scale);
     return grown(outputRegion, static_cast<int>(kernel(s[0]).size() / 2), static_cast<int>(kernel(s[1]).size() / 2));
 }
 
-Image BlurNode::compute(const RenderContext&, const Box& region, std::span<const Image* const> inputs) const {
+Image BlurNode::compute(const RenderContext& ctx, const Box& region, std::span<const Image* const> inputs) const {
     const Image& src = *inputs[0];
-    const Vec2 s = size();
+    const Vec2 s = size(ctx.scale);
     const std::vector<float> kx = kernel(s[0]), ky = kernel(s[1]);
     const int rx = static_cast<int>(kx.size() / 2), ry = static_cast<int>(ky.size() / 2);
     const int n = src.numChannels();

@@ -20,13 +20,13 @@ ImageInfo ConstantNode::computeInfo(const RenderContext& ctx, std::span<const Im
     const std::string format = param<std::string>("format", "project");
     Box frame;
     if (format == "project") {
-        frame = ctx.format.box();
+        frame = ctx.frameBox();
     } else if (format == "custom") {
         const Vec2 size = vec2Param("size", Vec2{1920, 1080});
         for (double v : size)
             if (!(v >= 1 && v <= 65536 && v == std::floor(v)))
                 throw Error(name() + ": size must be whole numbers from 1 to 65536");
-        frame = {0, 0, static_cast<int>(size[0]), static_cast<int>(size[1])};
+        frame = Box{0, 0, static_cast<int>(size[0]), static_cast<int>(size[1])}.scaled(ctx.scale);
     } else {
         throw Error(name() + ": unknown format '" + format + "' (use project or custom)");
     }

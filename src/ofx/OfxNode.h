@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <tuple>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -58,7 +59,12 @@ private:
         std::vector<ImageInfo> inputs;
         std::vector<bool> connected;
         ImageInfo output;
-        int flipY = 0;
+        int flipY = 0;           // pixel coordinates (at the render scale): OFX y = flipY - comp y
+        double scale = 1;        // the render scale
+        int flipCanonical = 0;   // canonical (full-size) coordinates' flip
+        // comp pixels <-> OFX canonical coordinates.
+        OfxRectI toCanonical(const Box& pixels) const;
+        Box fromCanonical(const OfxRectD& canonical) const;
     };
     FrameInfo frameInfo(const RenderContext& ctx) const;
     void fillContext(CallContext& call, const FrameInfo& fi, double time) const;
@@ -72,7 +78,11 @@ private:
 
     mutable std::mutex actionMutex_;  // instance-safe plugins: one action at a time
     mutable std::mutex infoMutex_;
-    mutable std::map<double, FrameInfo> frameInfos_;
+    // By (frame, scale, format width, height): renders at different scales or
+    // formats (a proxy viewer beside a full-size render) mustn't share one.
+    using FrameKey = std::tuple<double, double, int, int>;
+    static FrameKey keyOf(const RenderContext& ctx) { return {ctx.frame, ctx.scale, ctx.format.width, ctx.format.height}; }
+    mutable std::map<FrameKey, FrameInfo> frameInfos_;
     mutable std::mutex pluginValuesMutex_;
     mutable std::map<std::string, ParamValue> pluginValues_;  // values the plugin set itself
 };

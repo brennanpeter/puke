@@ -30,6 +30,8 @@ public:
 
     ImageInfo computeInfo(const RenderContext& ctx,
                           std::span<const ImageInfo* const> inputs) const override;
+    // Full-size pixels of `region`, in the working space.
+    Image readRegion(const RenderContext& ctx, const Box& region) const;
     Image compute(const RenderContext& ctx, const Box& region,
                   std::span<const Image* const> inputs) const override;
 

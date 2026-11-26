@@ -101,9 +101,13 @@ void RenderWorker::run() {
         QElapsedTimer timer;
         timer.start();
         try {
-            const comp::RenderContext ctx{req.frame, req.format};
+            const comp::RenderContext ctx{req.frame, req.format, req.scale};
+            res.scale = req.scale;
             const comp::ImageInfo info = engine.info(*req.snapshot, ctx);
             res.displayWindow = info.displayWindow;
+            // At full size, asked for rather than scaled back up (rounding).
+            res.fullFrame = req.scale == 1 ? info.displayWindow
+                                       : engine.info(*req.snapshot, {req.frame, req.format, 1.0}).displayWindow;
             // The frame, plus whatever overscan exists around it (up to a
             // quarter of the frame size on each side).
             const comp::Box& f = info.displayWindow;
@@ -112,7 +116,7 @@ void RenderWorker::run() {
             if (f.empty()) region = info.dataWindow.intersect({-4096, -4096, 4096, 4096});
             res.full = region;
             if (req.visible) {  // only what's on screen, with a margin for small pans
-                const comp::Box& v = *req.visible;
+                const comp::Box v = req.visible->scaled(req.scale);
                 region = region.intersect(v.padded(std::max(32, std::max(v.width(), v.height()) / 8)));
             }
             res.region = region;
@@ -163,7 +167,7 @@ void ViewerCanvas::setMessage(const QString& m) {
 }
 
 void ViewerCanvas::fit() {
-    const comp::Box f = result_.displayWindow.empty() ? result_.full : result_.displayWindow;
+    const comp::Box f = result_.fullFrame.empty() ? result_.full.scaled(1 / result_.scale) : result_.fullFrame;
     if (f.empty()) return;
     zoom_ = std::min((width() - 40.0) / f.width(), (height() - 40.0) / f.height());
     zoom_ = std::max(zoom_, 0.01);
@@ -194,22 +198,25 @@ void ViewerCanvas::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.fillRect(rect(), QColor(30, 30, 32));
     if (!result_.image.isNull()) {
+        // A proxy picture is drawn at full size, exactly where the full one would be.
         const comp::Box& r = result_.region;
-        const QRectF target(offset_.x() + r.x0 * zoom_, offset_.y() + r.y0 * zoom_, r.width() * zoom_, r.height() * zoom_);
+        const double z = zoom_ / result_.scale;
+        const QRectF target(offset_.x() + r.x0 * z, offset_.y() + r.y0 * z, r.width() * z, r.height() * z);
         p.setRenderHint(QPainter::SmoothPixmapTransform, zoom_ < 1);
         p.drawImage(target, result_.image);
     }
     if (!result_.full.empty()) {
-        const comp::Box& f = result_.displayWindow;
+        const comp::Box& f = result_.fullFrame;
         p.setPen(QPen(QColor(150, 150, 150), 1, Qt::DashLine));
         p.setBrush(Qt::NoBrush);
         p.drawRect(QRectF(offset_.x() + f.x0 * zoom_, offset_.y() + f.y0 * zoom_, f.width() * zoom_, f.height() * zoom_));
     }
     p.setPen(QColor(200, 200, 200));
     if (!result_.full.empty()) {
-        const comp::Box& f = result_.displayWindow;
+        const comp::Box& f = result_.fullFrame;
+        const QString proxy = result_.scale < 1 ? QString("   proxy %1%").arg(int(std::lround(result_.scale * 100))) : QString();
         p.drawText(rect().adjusted(8, 6, -8, -6), Qt::AlignTop | Qt::AlignRight,
-                   QString("%1x%2   %3%   %4 ms").arg(f.width()).arg(f.height()).arg(int(zoom_ * 100)).arg(result_.milliseconds, 0, 'f', 0));
+                   QString("%1x%2%5   %3%   %4 ms").arg(f.width()).arg(f.height()).arg(int(zoom_ * 100)).arg(result_.milliseconds, 0, 'f', 0).arg(proxy));
     }
     if (tool_) {
         p.save();
@@ -284,14 +291,16 @@ void ViewerCanvas::mouseMoveEvent(QMouseEvent* e) {
     }
     readout_.clear();
     if (result_.working) {
-        const QPointF p = toImage(e->position());
+        // The pixel under the mouse: in a proxy picture, the one covering it.
+        const QPointF p = toImage(e->position()) * result_.scale;
         const int x = int(std::floor(p.x())), y = int(std::floor(p.y()));
         const comp::Image& img = *result_.working;
         if (img.region().contains(x, y)) {
             QStringList values;
             for (int c = 0; c < img.numChannels(); ++c)
                 values << QString("%1 %2").arg(QString::fromStdString(img.channels()[c])).arg(img.at(x, y, c), 0, 'f', 4);
-            readout_ = QString("x %1  y %2    %3").arg(x).arg(y).arg(values.join("  "));
+            const QPointF full = toImage(e->position());
+            readout_ = QString("x %1  y %2    %3").arg(int(std::floor(full.x()))).arg(int(std::floor(full.y()))).arg(values.join("  "));
         }
     }
     update();
@@ -338,6 +347,11 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     channel_ = new QComboBox;
     channel_->setObjectName("viewerChannel");
     channel_->addItems({"RGB", "R", "G", "B", "A"});
+    // Proxy: render smaller, for speed; parameters and drawing stay full size.
+    proxy_ = new QComboBox;
+    proxy_->setObjectName("viewerProxy");
+    proxy_->setToolTip("Proxy: render the viewer at a fraction of full size, for speed");
+    for (auto [name, s] : {std::pair{"Full", 1.0}, {"1/2", 0.5}, {"1/4", 0.25}, {"1/8", 0.125}}) proxy_->addItem(name, s);
     auto* fit = new QToolButton;
     fit->setText("Fit");
     // Draw mode for the selected Roto's shape; only there when one is.
@@ -348,7 +362,7 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     draw->setToolTip("Click to add points, drag to pull handles; click the first point or press Enter to finish");
     draw->setVisible(false);
     bar->addWidget(title_, 1);
-    for (QWidget* w : std::initializer_list<QWidget*>{draw, channel_, exposure_, display_, view_, fit}) bar->addWidget(w);
+    for (QWidget* w : std::initializer_list<QWidget*>{draw, proxy_, channel_, exposure_, display_, view_, fit}) bar->addWidget(w);
     layout->addLayout(bar);
     canvas_ = new ViewerCanvas;
     roto_ = new RotoTool(doc_, this);
@@ -376,6 +390,7 @@ Viewer::Viewer(Document& doc, QWidget* parent) : QWidget(parent), doc_(doc) {
     connect(view_, &QComboBox::currentTextChanged, this, &Viewer::requestRender);
     connect(exposure_, &QDoubleSpinBox::valueChanged, this, &Viewer::requestRender);
     connect(channel_, &QComboBox::currentIndexChanged, this, &Viewer::requestRender);
+    connect(proxy_, &QComboBox::currentIndexChanged, this, &Viewer::requestRender);
     connect(&doc_, &Document::frameChanged, this, &Viewer::showFrame);
     // A new project format changes what generators make; range and fps don't.
     connect(&doc_, &Document::settingsChanged, this, [this] {
@@ -425,7 +440,7 @@ void Viewer::requestRender() {
 
 bool Viewer::covers(const ViewResult& r) const {
     const auto visible = canvas_->visibleRegion();
-    const comp::Box needed = visible ? r.full.intersect(*visible) : r.full;
+    const comp::Box needed = visible ? r.full.intersect(visible->scaled(r.scale)) : r.full;
     return needed.empty() || r.region.intersect(needed) == needed;
 }
 
@@ -474,6 +489,7 @@ void Viewer::render() {
     req.frame = doc_.frame();
     req.format = format_ = doc_.settings().format;
     req.visible = canvas_->visibleRegion();
+    req.scale = proxy_->currentData().toDouble();
     req.display = display_->currentText().toStdString();
     req.view = view_->currentText().toStdString();
     req.exposure = exposure_->value();

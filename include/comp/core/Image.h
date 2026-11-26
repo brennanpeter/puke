@@ -81,4 +81,10 @@ inline Image cropped(const Image& src, const Box& region) {
     return out;
 }
 
+// `src` (full size) shrunk to `scale` times the size, for `region` (in
+// scaled pixels): each output pixel is the average of the source area it
+// covers, partial pixels weighted by how much of them it covers. Source
+// pixels outside src.region() count as zero.
+Image downscale(const Image& src, const Box& region, double scale);
+
 }  // namespace comp

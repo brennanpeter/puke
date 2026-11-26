@@ -493,6 +493,16 @@ class ProjectTests(TempDirTest):
         self.assertEqual(n["gamma"], 2.0)
         self.assertEqual(n.keys("gamma"), [])
 
+    def test_proxy(self):
+        g = comp.Graph()
+        g.format = (64, 32)
+        c = g.create("Constant", "C")
+        e = comp.Engine()
+        self.assertEqual(e.info(c, scale=0.5).display_window, comp.Box(0, 0, 32, 16))
+        self.assertEqual(e.render(c, scale=0.25).region, comp.Box(0, 0, 16, 8))
+        with self.assertRaisesRegex(comp.Error, "render scale must be more than 0"):
+            e.render(c, scale=0)
+
     def test_json_text(self):
         g = comp.Graph.from_json('{"format": "comp", "version": 1, "nodes": ['
                                  '{"name": "G", "type": "Grade", "params": {"mix": 0.5}}]}')

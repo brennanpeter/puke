@@ -36,9 +36,10 @@ struct ViewRequest {
     std::string display, view;
     double exposure = 0;  // stops
     int channel = 0;      // 0 RGB, 1 R, 2 G, 3 B, 4 A
-    // The part of the image on screen (pixel coordinates), if known: only
-    // that (plus a margin) is rendered.
+    // The part of the image on screen (full-size pixel coordinates), if
+    // known: only that (plus a margin) is rendered.
     std::optional<comp::Box> visible;
+    double scale = 1;  // proxy: render at this fraction of full size
     quint64 serial = 0;
 };
 
@@ -47,9 +48,13 @@ struct ViewResult {
     double frame = 1;
     QImage image;                             // display-ready, covering `region`
     std::shared_ptr<const comp::Image> working;  // working-space pixels, for the readout
+    // In pixels at `scale` (a proxy render is smaller); the canvas draws it
+    // at full size.
+    double scale = 1;
     comp::Box region;      // what was rendered
     comp::Box full;        // what would be rendered with all of it on screen
     comp::Box displayWindow;
+    comp::Box fullFrame;   // the display window at full size (for drawing)
     QString error;
     double milliseconds = 0;
 };
@@ -175,6 +180,7 @@ private:
     QComboBox* view_;
     QDoubleSpinBox* exposure_;
     QComboBox* channel_;
+    QComboBox* proxy_;
     quint64 serial_ = 0;
     comp::Format format_;  // the project format the latest render used
     quint64 shown_ = 0;  // serial of what's on screen

@@ -11,7 +11,8 @@ namespace comp {
 
 int TransformNode::filterRadius() const { return resample::radius(resample::parseFilter(*this)); }
 
-Affine TransformNode::matrix() const {
+Affine TransformNode::matrix(double scale) const {
+    if (scale != 1) return Affine::scale(scale, scale) * matrix(1) * Affine::scale(1 / scale, 1 / scale);
     const Vec2 t = vec2Param("translate", {0, 0});
     const Vec2 s = vec2Param("scale", {1, 1});
     const Vec2 c = vec2Param("center", {0, 0});
@@ -26,20 +27,20 @@ Affine TransformNode::matrix() const {
     return m.inverse();
 }
 
-ImageInfo TransformNode::computeInfo(const RenderContext&,
+ImageInfo TransformNode::computeInfo(const RenderContext& ctx,
                                      std::span<const ImageInfo* const> inputs) const {
     ImageInfo info = *inputs[0];
-    info.dataWindow = resample::mapDataWindow(info.dataWindow, matrix(), resample::parseFilter(*this));
+    info.dataWindow = resample::mapDataWindow(info.dataWindow, matrix(ctx.scale), resample::parseFilter(*this));
     return info;
 }
 
-Box TransformNode::inputRegion(const RenderContext&, int, const Box& outputRegion) const {
-    return resample::inputRegion(outputRegion, matrix(), resample::parseFilter(*this));
+Box TransformNode::inputRegion(const RenderContext& ctx, int, const Box& outputRegion) const {
+    return resample::inputRegion(outputRegion, matrix(ctx.scale), resample::parseFilter(*this));
 }
 
-Image TransformNode::compute(const RenderContext&, const Box& region,
+Image TransformNode::compute(const RenderContext& ctx, const Box& region,
                              std::span<const Image* const> inputs) const {
-    return resample::apply(*inputs[0], region, matrix(), resample::parseFilter(*this));
+    return resample::apply(*inputs[0], region, matrix(ctx.scale), resample::parseFilter(*this));
 }
 
 std::vector<ParamSpec> TransformNode::paramSpecs() const {
