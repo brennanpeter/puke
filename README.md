@@ -67,10 +67,32 @@ cmake --build build
 ctest --test-dir build
 ```
 
+#### Ubuntu 22.04 (and Pop!_OS 22.04)
+
+22.04's OpenColorIO is version 1, so build OCIO 2.1 into your home folder
+first (nothing system-wide changes):
+
+```sh
+git clone --branch v2.1.3 --depth 1 https://github.com/AcademySoftwareFoundation/OpenColorIO.git
+cmake -S OpenColorIO -B ocio-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=$HOME/.local/ocio-2.1 -DOCIO_INSTALL_EXT_PACKAGES=MISSING \
+    -DOCIO_BUILD_APPS=OFF -DOCIO_BUILD_PYTHON=OFF -DOCIO_BUILD_OPENFX=OFF \
+    -DOCIO_BUILD_TESTS=OFF -DOCIO_BUILD_GPU_TESTS=OFF -DOCIO_BUILD_DOCS=OFF
+cmake --build ocio-build && cmake --install ocio-build
+```
+
+Install the other packages above (without `libopencolorio-dev`), then add
+`-DCMAKE_PREFIX_PATH=$HOME/.local/ocio-2.1` when configuring puke.
+
+If you use Anaconda or another Python distribution, build the Python
+module for the system Python with `-DPython_EXECUTABLE=/usr/bin/python3`.
+A module built for Anaconda's Python loads Anaconda's copies of system
+libraries (Pango, for one), which clash with the ones OpenImageIO needs.
+
 The GUI and the Python module are built when their libraries are found.
 To skip them, pass `-DCOMP_GUI=OFF` or `-DCOMP_PYTHON=OFF`.
 
-So far puke is built and tested on Linux. The OFX test plugins are built
+So far puke is built and tested on Linux: Ubuntu 24.04, and 22.04 with the notes above. The OFX test plugins are built
 on Linux only.
 
 ## Using it
