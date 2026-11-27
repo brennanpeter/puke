@@ -116,6 +116,14 @@ build/puke_gui
 | Ctrl+Z / Ctrl+Shift+Z | undo / redo |
 | Ctrl+D | duplicate |
 
+Images come in through Read nodes. The easiest way is to drag image files
+from your file manager onto the node graph. You get one Read per sequence
+(dropping any frame of `shot.1001.exr`, `shot.1002.exr`, … brings in
+`shot.####.exr` with its frame range), and one per other image. Or create a
+Read with Tab and pick a file with the **…** button next to its file,
+which finds the sequence in the same way. Typing a path with a frame token
+(`####`, `%04d` or `@@@`) fills in the range from the files on disk.
+
 ### The command line
 
 ```sh

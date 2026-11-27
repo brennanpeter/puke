@@ -6,6 +6,9 @@
 #include <QGraphicsItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QKeyEvent>
+#include <QUrl>
+#include <QDragEnterEvent>
+#include <QMimeData>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
@@ -342,6 +345,7 @@ NodeGraphView::NodeGraphView(Document& doc, QWidget* parent) : QGraphicsView(par
     setRenderHint(QPainter::Antialiasing);
     setBackgroundBrush(QColor(42, 42, 44));
     setDragMode(RubberBandDrag);
+    setAcceptDrops(true);
     setTransformationAnchor(AnchorUnderMouse);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -568,6 +572,41 @@ void NodeGraphView::showCreatePopup() {
     popup->setAttribute(Qt::WA_DeleteOnClose);
     popup->move(QCursor::pos());
     popup->show();
+}
+
+namespace {
+
+QStringList localFiles(const QMimeData* mime) {
+    QStringList files;
+    if (!mime || !mime->hasUrls()) return files;
+    for (const QUrl& url : mime->urls())
+        if (url.isLocalFile()) files << url.toLocalFile();
+    return files;
+}
+
+}  // namespace
+
+// (QGraphicsView would pass drags on to the scene, whose items take none:
+// handled here instead.)
+void NodeGraphView::dragEnterEvent(QDragEnterEvent* event) {
+    if (localFiles(event->mimeData()).isEmpty()) return event->ignore();  // only files are taken
+    event->acceptProposedAction();
+}
+
+void NodeGraphView::dragMoveEvent(QDragMoveEvent* event) {
+    if (localFiles(event->mimeData()).isEmpty()) return event->ignore();  // only files are taken
+    event->acceptProposedAction();
+}
+
+void NodeGraphView::dropEvent(QDropEvent* event) {
+    const QStringList files = localFiles(event->mimeData());
+    if (files.isEmpty()) return QGraphicsView::dropEvent(event);
+    event->acceptProposedAction();
+    const QPointF at = mapToScene(event->position().toPoint()) - QPointF(50, 15);  // about a node's middle
+    const std::vector<puke::Node*> made = doc_.importFiles(files, at);
+    if (made.empty()) return;
+    selectNodes(made);
+    setFocus();
 }
 
 void NodeGraphView::keyPressEvent(QKeyEvent* event) {

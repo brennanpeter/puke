@@ -77,6 +77,51 @@ static void testFramePattern() {
 
 // ---------------------------------------------------------------- Read
 
+// Sequences found on disk: names only, so empty files do.
+static void testFileSequences() {
+    const fs::path dir = g_dir / "seqs";
+    fs::create_directories(dir / "v####");
+    for (const char* n : {"shot.1001.exr", "shot.1002.exr", "shot.1003.exr", "shot.1005.exr",  // 1004 missing
+                          "shot.042.exr",                                                     // narrower: not ####
+                          "shot.10000.exr",                                                   // wider, unpadded: is
+                          "shot.01000.exr",                                                   // wider, padded: isn't
+                          "shot.1006.exr.partial", "other.1001.exr", "shot_v2.exr", "img.jp2", "plain.exr",
+                          "a_1.tif", "a_2.tif", "v####/x.1.exr", "v####/x.2.exr"})
+        std::ofstream(dir / n).put('x');
+    fs::create_directories(dir / "shot.1004.exr");  // a folder: not a frame
+    const std::string base = (dir / "").string();
+
+    auto s = findFrames(base + "shot.####.exr");
+    CHECK(s && s->first == 1001 && s->last == 10000 && s->count == 5 && s->pattern == base + "shot.####.exr");
+    s = findFrames(base + "shot.%04d.exr");
+    CHECK(s && s->first == 1001 && s->last == 10000 && s->count == 5);
+    s = findFrames(base + "shot.%d.exr");  // any digits
+    CHECK(s && s->first == 42 && s->last == 10000 && s->count == 7);
+    s = findFrames(base + "shot.@@@.exr");
+    CHECK(s && s->first == 42 && s->last == 10000 && s->count == 6);  // 042, the four-digit ones, 10000
+    CHECK(!findFrames(base + "missing.####.exr"));
+    CHECK(!findFrames(base + "shot.1001.exr"));      // no token
+    CHECK(!findFrames(base + "v####/x.#.exr"));      // the token must be in the file's name
+    CHECK(!findFrames((dir / "nowhere" / "shot.####.exr").string()));
+
+    // A frame picks its sequence; the pattern has its number's padding.
+    s = sequenceOf(base + "shot.1002.exr");
+    CHECK(s && s->pattern == base + "shot.####.exr" && s->first == 1001 && s->last == 10000);
+    s = sequenceOf(base + "a_2.tif");
+    CHECK(s && s->pattern == base + "a_#.tif" && s->first == 1 && s->last == 2);
+    CHECK(!sequenceOf(base + "other.1001.exr"));  // the only one
+    CHECK(!sequenceOf(base + "shot_v2.exr"));     // a version number, alone
+    CHECK(!sequenceOf(base + "img.jp2"));         // the extension's digit isn't a frame
+    CHECK(!sequenceOf(base + "plain.exr"));
+    CHECK(!sequenceOf(base + "shot.####.exr"));   // already a pattern
+
+    // What drag and drop takes: files OpenImageIO reads.
+    makeTestFrame(tmp("isimage.exr"), 1);
+    std::ofstream(tmp("notes.txt")) << "hello";
+    CHECK(isImageFile(tmp("isimage.exr")));
+    CHECK(!isImageFile(tmp("notes.txt")) && !isImageFile(tmp("missing.exr")));
+}
+
 static void testRoundTrip() {
     makeTestFrame(tmp("in.0001.exr"), 1);
     makeTestFrame(tmp("in.0002.exr"), 2);
@@ -517,6 +562,7 @@ int main() {
 
     try {
         testFramePattern();
+        testFileSequences();
         testRoundTrip();
         testRegionsAndRange();
         testTiledRead();

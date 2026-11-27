@@ -5,8 +5,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
+#include <system_error>
 
+#include "puke/core/FramePattern.h"
 #include "puke/engine/Engine.h"
+#include "puke/nodes/ReadNode.h"
 #include "puke/nodes/Registry.h"
 #include "puke/project/Project.h"
 
@@ -385,6 +389,49 @@ void Document::setParam(puke::Node& node, const std::string& key, puke::ParamVal
         return;
     }
     pushParam(node, key, {std::move(value), std::nullopt}, "Set " + QString::fromStdString(key));
+}
+
+void Document::setReadFile(puke::Node& read, const std::string& path, bool asSequence) {
+    std::string file = path;
+    std::optional<puke::FileSequence> seq;
+    if (puke::hasFrameToken(path)) seq = puke::findFrames(path);
+    else if (asSequence && (seq = puke::sequenceOf(path))) file = seq->pattern;
+    const auto current = read.params().find("file");
+    const bool same = current != read.params().end() && current->second == puke::ParamValue(file);
+    if (same && !seq) return;
+    beginEdit(QString("Set %1 file").arg(QString::fromStdString(read.name())));
+    if (!same) setParam(read, "file", file);
+    if (seq) {
+        setParam(read, "first", seq->first);
+        setParam(read, "last", seq->last);
+    }
+    endEdit();
+}
+
+std::vector<puke::Node*> Document::importFiles(const QStringList& paths, QPointF position) {
+    namespace fs = std::filesystem;
+    // What each becomes: a sequence's pattern, or the file itself. In order,
+    // once each.
+    std::vector<std::string> files;
+    for (const QString& p : paths) {
+        const std::string path = p.toStdString();
+        std::error_code ec;
+        if (!fs::is_regular_file(path, ec) || !puke::isImageFile(path)) continue;
+        const auto seq = puke::sequenceOf(path);
+        const std::string file = seq ? seq->pattern : path;
+        if (std::find(files.begin(), files.end(), file) == files.end()) files.push_back(file);
+    }
+    std::vector<puke::Node*> made;
+    if (files.empty()) return made;
+    beginEdit(files.size() == 1 ? QString("Import %1").arg(QString::fromStdString(fs::path(files[0]).filename().string()))
+                                : QString("Import %1 files").arg(files.size()));
+    for (const std::string& file : files) {
+        puke::Node& read = createNode("Read", position + QPointF(130.0 * double(made.size()), 0));
+        setReadFile(read, file, false);
+        made.push_back(&read);
+    }
+    endEdit();
+    return made;
 }
 
 void Document::clearParam(puke::Node& node, const std::string& key) {

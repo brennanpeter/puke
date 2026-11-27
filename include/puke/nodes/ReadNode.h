@@ -6,6 +6,10 @@
 
 namespace puke {
 
+// Whether this is a file OpenImageIO can read: it exists and some reader
+// takes it (by its extension, or failing that by its contents).
+bool isImageFile(const std::string& path);
+
 // Reads an image or image sequence from disk via OpenImageIO.
 //
 // Parameters:
