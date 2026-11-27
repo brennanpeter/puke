@@ -34,6 +34,9 @@
 #include "NodeGraphView.h"
 #include "CurveEditor.h"
 #include "ProjectSettingsDialog.h"
+#include <QMimeData>
+#include <QUrl>
+#include <QDropEvent>
 #include "PropertiesPanel.h"
 #include "RenderDialog.h"
 #include "RotoTool.h"
@@ -1075,6 +1078,92 @@ int main(int argc, char** argv) {
             mouse(QEvent::MouseButtonRelease, {40, 50}, Qt::NoButton);
             CHECK(!point.hasParam("point"));
             doc.removeNode(point);
+        }
+
+        // --- Bringing in images: sequences found on disk, typed paths,
+        // and files dropped on the node graph.
+        {
+            QUndoStack& undo = doc.undoStack();
+            const std::string seqPattern = (dir / "seq.####.exr").string();
+            auto has = [](const puke::Node& n, const char* key, const puke::ParamValue& v) {
+                auto it = n.params().find(key);
+                return it != n.params().end() && it->second == v;
+            };
+            // Importing: two frames of one sequence and a still make two Reads.
+            const std::size_t before = doc.graph().nodes().size();
+            const int steps = undo.index();
+            std::vector<puke::Node*> made = doc.importFiles(
+                {QString::fromStdString((dir / "seq.1002.exr").string()), QString::fromStdString((dir / "seq.1001.exr").string()),
+                 QString::fromStdString((dir / "plate.exr").string()), QString::fromStdString(dir.string()),  // a folder: skipped
+                 QString::fromStdString((dir / "nothing.exr").string())},
+                {2000, 0});
+            CHECK(made.size() == 2 && doc.graph().nodes().size() == before + 2);
+            if (made.size() == 2) {
+                CHECK(std::string(made[0]->typeName()) == "Read" && has(*made[0], "file", seqPattern));
+                CHECK(has(*made[0], "first", 1001) && has(*made[0], "last", 1003));
+                CHECK(has(*made[1], "file", (dir / "plate.exr").string()) && !made[1]->hasParam("first"));
+                CHECK((made[1]->position() == puke::Vec2{2130, 0}) && made[0]->input(0) == nullptr);
+            }
+            CHECK(undo.index() == steps + 1);  // one step
+            undo.undo();
+            CHECK(doc.graph().nodes().size() == before);
+            CHECK(doc.importFiles({QString::fromStdString((dir / "plate.exr").string() + ".txt")}, {}).empty());
+            CHECK(undo.index() == steps);  // nothing to import: no step
+
+            // A Read's file typed as a pattern fills in its range; browsing to
+            // one frame (setReadFile as the dialog does) picks the sequence.
+            puke::Node& r = doc.createNode("Read", {2000, 200});
+            doc.setSelected(&r);
+            QApplication::processEvents();
+            auto* fileEdit = paramWidget<QLineEdit>(w, "file");
+            CHECK(fileEdit && paramWidget<QToolButton>(w, "file"));
+            if (fileEdit) {
+                fileEdit->setText(QString::fromStdString(seqPattern));
+                emit fileEdit->editingFinished();
+                CHECK(has(r, "file", seqPattern) && has(r, "first", 1001) && has(r, "last", 1003));
+                undo.undo();  // file and range together
+                CHECK(!r.hasParam("first") && !has(r, "file", seqPattern));
+                // A plain file leaves the range alone.
+                doc.setParam(r, "first", 5);
+                fileEdit->setText(QString::fromStdString((dir / "seq.1002.exr").string()));
+                emit fileEdit->editingFinished();
+                CHECK(has(r, "file", (dir / "seq.1002.exr").string()) && has(r, "first", 5));
+            }
+            doc.setReadFile(r, (dir / "seq.1003.exr").string(), true);
+            CHECK(has(r, "file", seqPattern) && has(r, "first", 1001) && has(r, "last", 1003));
+            doc.setReadFile(r, (dir / "plate.exr").string(), true);  // not part of a sequence
+            CHECK(has(r, "file", (dir / "plate.exr").string()));
+            doc.removeNode(r);
+
+            // Dropping on the graph: Reads where the drop is, selected.
+            NodeGraphView& gv = w.graphView();
+            QMimeData mime;
+            mime.setUrls({QUrl::fromLocalFile(QString::fromStdString((dir / "seq.1001.exr").string()))});
+            const QPoint at = gv.viewport()->rect().center();
+            QDragEnterEvent enter(at, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+            enter.setAccepted(false);  // (events start accepted)
+            QApplication::sendEvent(gv.viewport(), &enter);
+            CHECK(enter.isAccepted());
+            QDropEvent drop(at, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+            drop.setAccepted(false);  // (events start accepted)
+            QApplication::sendEvent(gv.viewport(), &drop);
+            CHECK(drop.isAccepted() && doc.graph().nodes().size() == before + 1);
+            const std::vector<puke::Node*> selected = gv.selectedNodes();
+            CHECK(selected.size() == 1 && selected[0] && has(*selected[0], "file", seqPattern));
+            if (!selected.empty() && selected[0]) {
+                const QPointF scene = gv.mapToScene(at);
+                const auto p = selected[0]->position();
+                CHECK(p && std::fabs((*p)[0] - (scene.x() - 50)) < 1 && std::fabs((*p)[1] - (scene.y() - 15)) < 1);
+            }
+            // Something that isn't a file (text, a web link) isn't taken.
+            QMimeData text;
+            text.setText("hello");
+            QDragEnterEvent other(at, Qt::CopyAction, &text, Qt::LeftButton, Qt::NoModifier);
+            other.setAccepted(false);  // (events start accepted)
+            QApplication::sendEvent(gv.viewport(), &other);
+            CHECK(!other.isAccepted());
+            undo.undo();
+            CHECK(doc.graph().nodes().size() == before);
         }
 
         if (const char* shot = std::getenv("PUKE_GUI_SCREENSHOT")) {

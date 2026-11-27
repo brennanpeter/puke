@@ -48,6 +48,12 @@ ImageInfo infoFromSpec(const OIIO::ImageSpec& s) {
 
 }  // namespace
 
+bool isImageFile(const std::string& path) {
+    const bool known = OIIO::ImageInput::create(path) != nullptr;
+    if (!known) (void)OIIO::geterror();  // don't leave the message for someone else
+    return known;
+}
+
 std::string ReadNode::resolvePath(const RenderContext& ctx) const {
     const auto pattern = param<std::string>("file");
     int frame = wholeFrame(ctx.frame);

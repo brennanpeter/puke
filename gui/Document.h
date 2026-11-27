@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QPointF>
 #include <QString>
+#include <QStringList>
 #include <QUndoStack>
 
 #include <memory>
@@ -71,6 +72,16 @@ public:
     // Sets a parameter. If it's animated, sets a key at the current frame
     // instead (as in Nuke: editing an animated value keys it).
     void setParam(puke::Node& node, const std::string& key, puke::ParamValue value);
+    // A Read's file, and its frame range from the files on disk, as one
+    // step. `asSequence`: a file that's one of a sequence (shot.1001.exr)
+    // becomes the sequence (shot.####.exr). A path with a frame token gets
+    // first/last from the frames found; without, they're left alone.
+    void setReadFile(puke::Node& read, const std::string& path, bool asSequence);
+    // Read nodes for these files, in a row from `position`, as one step:
+    // one per sequence (any number of its files), one per other image.
+    // Files OpenImageIO can't read, and folders, are skipped. Returns the
+    // new nodes.
+    std::vector<puke::Node*> importFiles(const QStringList& paths, QPointF position);
     // Back to the default: no value, no animation.
     void clearParam(puke::Node& node, const std::string& key);
 

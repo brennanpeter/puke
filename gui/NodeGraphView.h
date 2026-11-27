@@ -56,6 +56,11 @@ public:
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
+    // Image files dropped from a file manager become Read nodes (one per
+    // sequence), where they're dropped.
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;

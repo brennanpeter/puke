@@ -21,6 +21,7 @@
 #include <limits>
 
 #include "Document.h"
+#include "puke/core/FramePattern.h"
 
 namespace pukegui {
 
@@ -326,21 +327,28 @@ void PropertiesPanel::rebuild() {
             case Kind::File: {
                 auto* edit = new QLineEdit;
                 h->addWidget(edit, 1);
-                connect(edit, &QLineEdit::editingFinished, this, [this, &node, key, edit] {
-                    doc_.setParam(node, key, edit->text().toStdString());
+                // A Read's file also sets its frame range, from the files on disk.
+                const bool readFile = spec.kind == Kind::File && std::string(node.typeName()) == "Read";
+                connect(edit, &QLineEdit::editingFinished, this, [this, &node, key, edit, readFile] {
+                    if (readFile) doc_.setReadFile(node, edit->text().toStdString(), false);
+                    else doc_.setParam(node, key, edit->text().toStdString());
                 });
                 if (spec.kind == Kind::File) {
                     auto* browse = new QToolButton;
                     browse->setText("...");
                     h->addWidget(browse);
                     const bool saving = std::string(node.typeName()) == "Write";
-                    connect(browse, &QToolButton::clicked, this, [this, &node, key, edit, saving] {
-                        const QString f = saving ? QFileDialog::getSaveFileName(this, "Output file", edit->text())
-                                                 : QFileDialog::getOpenFileName(this, "File", edit->text());
-                        if (!f.isEmpty()) {
-                            edit->setText(f);
-                            doc_.setParam(node, key, f.toStdString());
-                        }
+                    browse->setObjectName(QString::fromStdString("browse_" + key));
+                    connect(browse, &QToolButton::clicked, this, [this, &node, key, edit, saving, readFile] {
+                        // The dialog opens where the current file is (a pattern's folder too).
+                        const QString start = QString::fromStdString(
+                            puke::expandFramePattern(edit->text().toStdString(), static_cast<int>(node.numberParam("first", 1))));
+                        const QString f = saving ? QFileDialog::getSaveFileName(this, "Output file", start)
+                                                 : QFileDialog::getOpenFileName(this, "File", start);
+                        if (f.isEmpty()) return;
+                        // One frame of a sequence picks the whole sequence.
+                        if (readFile) doc_.setReadFile(node, f.toStdString(), true);
+                        else doc_.setParam(node, key, f.toStdString());
                     });
                 }
                 refreshValue = [edit, current] {
